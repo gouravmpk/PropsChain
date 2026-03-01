@@ -47,6 +47,15 @@ setup() {
   echo -e "${YELLOW}[3/3] Installing dependencies...${NC}"
   $VENV_DIR/bin/pip install -r requirements.txt -q
   echo -e "${GREEN}  ✅ Dependencies installed${NC}"
+
+  echo ""
+  if [ ! -f ".env" ]; then
+    cp .env.example .env
+    echo -e "${YELLOW}  ⚠️  .env created from .env.example — add your AWS credentials before starting.${NC}"
+  else
+    echo -e "${GREEN}  ✅ .env already exists${NC}"
+  fi
+
   echo ""
   echo -e "${GREEN}Setup complete. Run './run.sh start' to launch the server.${NC}"
 }
