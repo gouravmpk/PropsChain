@@ -28,11 +28,10 @@ Upload a property document (PDF or image) for AI-powered fraud detection.
 
 **Pipeline:**
 1. SHA-256 hash computed from file bytes
-2. AWS Textract extracts key-value fields from the document
+2. AWS Bedrock (Claude) directly reads the document — extracts fields + analyzes fraud in one call
 3. Rule-based checks (date validation, format checks, name consistency)
-4. AWS Bedrock (Claude) performs holistic fraud analysis
-5. Final fraud score computed (0.0 = clean, 1.0 = highly suspicious)
-6. Result optionally logged on-chain as a `DOCUMENT_VERIFICATION` block
+4. Final fraud score computed (0.0 = clean, 1.0 = highly suspicious)
+5. Result optionally logged on-chain as a `DOCUMENT_VERIFICATION` block
 
 **Verdict thresholds:**
 - `AUTHENTIC`  — fraud_score < 0.35
@@ -192,17 +191,16 @@ def _build_checks(rule_checks: list) -> list:
 @router.get(
     "/mode",
     summary="Check AI verification mode",
-    description="Returns whether the service is using real AWS (Textract + Bedrock) or mock simulation.",
+    description="Returns whether the service is using real AWS Bedrock (Claude vision) or mock simulation.",
     tags=["AI Document Verification"],
 )
 async def get_ai_mode():
     return {
         "mode": "aws" if USE_AWS else "mock",
-        "textract": USE_AWS,
         "bedrock": USE_AWS,
         "model": "anthropic.claude-haiku-4-5-20251001" if USE_AWS else "mock",
         "message": (
-            "Using AWS Textract + Bedrock for real document analysis"
+            "Using AWS Bedrock (Claude vision) — direct document read + fraud analysis in one call"
             if USE_AWS
             else "Running in mock mode — set AWS_ACCESS_KEY_ID in .env to enable real AI"
         ),
