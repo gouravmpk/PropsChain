@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #0a0a14; color: #e2e8f0; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #1e1b4b; }
+  ::-webkit-scrollbar-thumb { background: #4f46e5; border-radius: 3px; }
+}
+
+@layer components {
+  .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08); }
+  .glass-card { @apply glass rounded-2xl p-6; }
+  .btn-primary { @apply bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-105; }
+  .btn-secondary { @apply bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium py-3 px-6 rounded-xl transition-all duration-200; }
+  .input-field { @apply w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all; }
+  .stat-card { @apply glass-card hover:border-indigo-500/30 transition-all duration-300 hover:-translate-y-1; }
+  .badge-verified { @apply inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-pending { @apply inline-flex items-center gap-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-review { @apply inline-flex items-center gap-1 bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .nav-link { @apply flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200 font-medium; }
+  .nav-link.active { @apply bg-indigo-600/20 text-indigo-400 border border-indigo-500/20; }
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #0a0a14 0%, #0f0a2a 30%, #0a1628 60%, #0a0a14 100%);
+  background-size: 400% 400%;
+  animation: gradient 12s ease infinite;
+}
+
+@keyframes gradient {
+  0%,100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.blockchain-line {
+  background: linear-gradient(90deg, transparent, #6366f1 50%, transparent);
+  height: 1px;
+  animation: scan 3s linear infinite;
+}
+
+@keyframes scan {
+  0% { transform: scaleX(0) translateX(-100%); }
+  100% { transform: scaleX(1) translateX(100%); }
+}
+
+.property-card { transition: all 0.3s ease; }
+.property-card:hover { transform: translateY(-4px); }
+
+.hash-text { font-family: 'Courier New', monospace; font-size: 0.7rem; color: #6366f1; word-break: break-all; }
+
+@keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+.animate-float { animation: float 5s ease-in-out infinite; }
+
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(99,102,241,0.1) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

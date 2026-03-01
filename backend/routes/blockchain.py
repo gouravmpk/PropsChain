@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from config.database import blockchain_collection
 from models.blockchain import (
     MintPropertyRequest,
     TransferOwnershipRequest,
@@ -20,6 +21,68 @@ from services.blockchain_service import (
 )
 
 router = APIRouter(prefix="/blockchain", tags=["Blockchain"])
+
+
+# ---------------------------------------------------------------------------
+# Helper — normalise a MongoDB block for the frontend
+# ---------------------------------------------------------------------------
+def _frontend_block(b: dict) -> dict:
+    """Map MongoDB block fields → frontend-compatible format."""
+    b = {k: v for k, v in b.items() if k != "_id"}
+    b["index"] = b.get("block_index", 0)
+    b.setdefault("nonce", 0)
+    # Surface transaction_type inside data.type so the UI badge works
+    if "data" in b and isinstance(b["data"], dict):
+        b["data"] = {**b["data"], "type": b.get("transaction_type", "")}
+    return b
+
+
+# ---------------------------------------------------------------------------
+# Frontend API: GET /blockchain  — all recent blocks
+# ---------------------------------------------------------------------------
+@router.get(
+    "",
+    summary="Get recent blockchain blocks (frontend view)",
+    description="Returns the last 50 blocks across all properties in a frontend-compatible format.",
+    tags=["Blockchain"],
+)
+async def get_all_blocks():
+    cursor = blockchain_collection.find().sort("timestamp", -1).limit(50)
+    blocks = [_frontend_block(b) async for b in cursor]
+    return {"chain": blocks, "length": len(blocks)}
+
+
+# ---------------------------------------------------------------------------
+# Frontend API: GET /blockchain/verify  — aggregate chain health
+# ---------------------------------------------------------------------------
+@router.get(
+    "/verify",
+    summary="Verify overall chain integrity",
+    description="Samples all property chains and returns aggregate validity status.",
+    tags=["Blockchain"],
+)
+async def verify_all_chains():
+    total = await blockchain_collection.count_documents({})
+    # Quick spot-check: verify the last 20 blocks pass hash round-trip
+    from utils.hashing import compute_hash
+    cursor = blockchain_collection.find().sort("timestamp", -1).limit(20)
+    blocks = [b async for b in cursor]
+    broken_at = None
+    valid = True
+    for i, blk in enumerate(blocks):
+        recomputed = compute_hash(
+            block_index=blk["block_index"],
+            property_id=blk["property_id"],
+            data=blk["data"],
+            previous_hash=blk["previous_hash"],
+            timestamp=blk["timestamp"],
+        )
+        if recomputed != blk["hash"]:
+            valid = False
+            broken_at = i
+            break
+    return {"valid": valid, "chain_length": total, "broken_at": broken_at}
+
 
 # ---------------------------------------------------------------------------
 # Shared response spec helpers

@@ -7,6 +7,10 @@ from contextlib import asynccontextmanager
 from config.database import init_db
 from routes.blockchain import router as blockchain_router
 from routes.ai_verify import router as ai_router
+from routes.auth import router as auth_router
+from routes.properties import router as properties_router
+from routes.marketplace import router as marketplace_router
+from routes.dashboard import router as dashboard_router
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +99,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(blockchain_router)
-app.include_router(ai_router)
+app.include_router(blockchain_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(properties_router, prefix="/api")
+app.include_router(marketplace_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +159,14 @@ async def root():
 @app.get("/health", tags=["Health"], summary="Health check")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/health", tags=["Health"], summary="API health check")
+async def api_health():
+    return {
+        "status": "ok",
+        "service": "PropChain API",
+        "team": "OpsAI",
+        "version": "1.0.0",
+        "features": ["blockchain", "ai-verification", "auth", "properties", "marketplace"],
+    }

@@ -1,0 +1,10 @@
+bcrypt==4.0.1
+fastapi==0.133.1
+passlib==1.7.4
+pillow==12.1.1
+pydantic==2.12.5
+pydantic_core==2.41.5
+python-jose==3.5.0
+python-multipart==0.0.22
+starlette==0.52.1
+uvicorn==0.41.0
