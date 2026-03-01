@@ -1,0 +1,805 @@
+{
+  "info": {
+    "_postman_id": "propchain-aiforbharat-2024",
+    "name": "PropChain API — AI for Bharat Hackathon",
+    "description": "Complete API collection for PropChain — a blockchain and AI-powered property registration platform.\n\n## How to use\n1. Import this collection\n2. Import `PropChain.postman_environment.json` and select it\n3. Run requests in order (folders are numbered)\n4. Variables like `{{block_hash}}` and `{{property_id}}` are auto-saved from responses\n\n## Full Flow\nMint → AI Verify Document → Transfer → Status Update → Tokenize → Token Transfer → View Passport → Verify Chain\n\n## AI mock_scenario values\n- `authentic` — always returns clean result (for demos)\n- `flagged`   — always returns fraud result (for demos)\n- `auto`      — determined by file hash (default)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
+    { "key": "property_id", "value": "PROP-KA-2024-001", "type": "string" },
+    { "key": "property_id_2", "value": "PROP-MH-2024-002", "type": "string" },
+    { "key": "block_hash", "value": "", "type": "string" },
+    { "key": "genesis_hash", "value": "", "type": "string" },
+    { "key": "ai_mode", "value": "mock", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 — AI Mode Check",
+      "item": [
+        {
+          "name": "Check AI Mode (AWS or Mock)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/mode", "host": ["{{base_url}}"], "path": ["ai", "mode"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Mode is set', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(['aws', 'mock']).to.include(json.mode);",
+                  "  pm.collectionVariables.set('ai_mode', json.mode);",
+                  "  console.log('AI Mode:', json.mode);",
+                  "  console.log('Message:', json.message);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "00 — Health",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/", "host": ["{{base_url}}"], "path": [""] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Service is PropChain', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.service).to.eql('PropChain API');",
+                  "  pm.expect(json.status).to.eql('running');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status ok', () => {",
+                  "  pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 — Mint Property (Genesis)",
+      "item": [
+        {
+          "name": "✅ Mint Property KA-001",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/mint", "host": ["{{base_url}}"], "path": ["blockchain", "mint"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"owner_name\": \"Ravi Kumar\",\n  \"owner_aadhaar_last4\": \"7890\",\n  \"property_address\": \"123 MG Road, Bengaluru, KA 560001\",\n  \"area_sqft\": 1200,\n  \"property_type\": \"Residential\",\n  \"market_value\": 5000000,\n  \"registration_number\": \"REG-BLR-2024-9876\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Genesis block (index 0)', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.block_index).to.eql(0);",
+                  "  pm.expect(json.block.transaction_type).to.eql('GENESIS');",
+                  "  pm.expect(json.block.previous_hash).to.eql('0000000000000000000000000000000000000000000000000000000000000000');",
+                  "  pm.collectionVariables.set('genesis_hash', json.hash);",
+                  "  pm.collectionVariables.set('block_hash', json.hash);",
+                  "  console.log('Genesis hash saved:', json.hash);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Mint Property MH-002 (Commercial)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/mint", "host": ["{{base_url}}"], "path": ["blockchain", "mint"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id_2}}\",\n  \"owner_name\": \"Infra Holdings Pvt Ltd\",\n  \"owner_aadhaar_last4\": \"4321\",\n  \"property_address\": \"Plot 45, BKC, Mumbai, MH 400051\",\n  \"area_sqft\": 15000,\n  \"property_type\": \"Commercial\",\n  \"market_value\": 75000000,\n  \"registration_number\": \"REG-MUM-2024-1122\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Commercial property registered', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.block_index).to.eql(0);",
+                  "  pm.expect(json.block.data.property_type).to.eql('Commercial');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "❌ Duplicate Mint (should fail 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/mint", "host": ["{{base_url}}"], "path": ["blockchain", "mint"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"owner_name\": \"Fraud Attempt\",\n  \"owner_aadhaar_last4\": \"0000\",\n  \"property_address\": \"Fake Address\",\n  \"area_sqft\": 100,\n  \"property_type\": \"Residential\",\n  \"market_value\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Duplicate registration blocked (400)', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().detail).to.include('already registered');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — AI Document Verification (Upload)",
+      "description": "Upload real PDF/image files. Use mock_scenario to control demo outcomes.\n\nNote: These requests use form-data with a file field.\nIn Postman: Body → form-data → set 'file' type to File and pick a PDF.",
+      "item": [
+        {
+          "name": "✅ Verify Title Deed — AUTHENTIC (mock)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/verify-document", "host": ["{{base_url}}"], "path": ["ai", "verify-document"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Select any PDF or image file from your machine" },
+                { "key": "property_id", "value": "{{property_id}}", "type": "text" },
+                { "key": "document_type", "value": "Title Deed", "type": "text" },
+                { "key": "auto_log_on_chain", "value": "true", "type": "text" },
+                { "key": "mock_scenario", "value": "authentic", "type": "text", "description": "Forces clean result in mock mode" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Document is AUTHENTIC', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('AUTHENTIC');",
+                  "  pm.expect(json.is_authentic).to.be.true;",
+                  "  pm.expect(json.fraud_score).to.be.below(0.35);",
+                  "  console.log('Fraud Score:', json.fraud_score);",
+                  "  console.log('Fields extracted:', json.extracted_fields.length);",
+                  "  console.log('Logged on chain:', json.logged_on_chain);",
+                  "  if (json.blockchain_block) {",
+                  "    pm.collectionVariables.set('block_hash', json.blockchain_block.hash);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "🚨 Verify Title Deed — FLAGGED / Tampered (mock)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/verify-document", "host": ["{{base_url}}"], "path": ["ai", "verify-document"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Select any PDF or image file from your machine" },
+                { "key": "property_id", "value": "{{property_id}}", "type": "text" },
+                { "key": "document_type", "value": "Title Deed", "type": "text" },
+                { "key": "auto_log_on_chain", "value": "true", "type": "text" },
+                { "key": "mock_scenario", "value": "flagged", "type": "text", "description": "Forces high-fraud result in mock mode" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Document is FLAGGED', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('FLAGGED');",
+                  "  pm.expect(json.is_authentic).to.be.false;",
+                  "  pm.expect(json.fraud_score).to.be.above(0.65);",
+                  "  pm.expect(json.flags.length).to.be.above(0);",
+                  "  console.log('Fraud Score:', json.fraud_score);",
+                  "  console.log('Flags:', json.flags.join(' | '));",
+                  "  console.log('AI Explanation:', json.ai_explanation);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Verify Aadhaar Card — AUTHENTIC (mock)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/verify-document", "host": ["{{base_url}}"], "path": ["ai", "verify-document"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Select any PDF or image file" },
+                { "key": "property_id", "value": "{{property_id}}", "type": "text" },
+                { "key": "document_type", "value": "Aadhaar Card", "type": "text" },
+                { "key": "auto_log_on_chain", "value": "false", "type": "text" },
+                { "key": "mock_scenario", "value": "authentic", "type": "text" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Aadhaar AUTHENTIC', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('AUTHENTIC');",
+                  "  const aadhaarField = json.extracted_fields.find(f => f.key === 'Aadhaar Number');",
+                  "  pm.expect(aadhaarField).to.not.be.undefined;",
+                  "  console.log('Aadhaar Number (masked):', aadhaarField?.value);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "🚨 Verify Aadhaar Card — FLAGGED (mock)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/verify-document", "host": ["{{base_url}}"], "path": ["ai", "verify-document"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Select any PDF or image file" },
+                { "key": "property_id", "value": "{{property_id}}", "type": "text" },
+                { "key": "document_type", "value": "Aadhaar Card", "type": "text" },
+                { "key": "auto_log_on_chain", "value": "false", "type": "text" },
+                { "key": "mock_scenario", "value": "flagged", "type": "text" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Aadhaar FLAGGED - future DOB detected', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('FLAGGED');",
+                  "  pm.expect(json.flags.length).to.be.above(0);",
+                  "  console.log('Flags:', json.flags);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "❌ Invalid file type (should fail 400)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/ai/verify-document", "host": ["{{base_url}}"], "path": ["ai", "verify-document"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Upload a .txt or .csv file to trigger the error" },
+                { "key": "property_id", "value": "{{property_id}}", "type": "text" },
+                { "key": "document_type", "value": "Title Deed", "type": "text" },
+                { "key": "auto_log_on_chain", "value": "false", "type": "text" },
+                { "key": "mock_scenario", "value": "auto", "type": "text" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid file type rejected (400)', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  console.log('Error:', pm.response.json().detail);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02b — AI Document Verification (Legacy JSON log)",
+      "item": [
+        {
+          "name": "✅ Verify Title Deed (Authentic)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/verify-document", "host": ["{{base_url}}"], "path": ["blockchain", "verify-document"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"document_type\": \"Title Deed\",\n  \"document_hash\": \"a7f3c2d9e8b14f6a2c5e9d1b3f7a4e8c2d6f9b1e4a7c3f6d9b2e5a8c1d4f7b0\",\n  \"fraud_score\": 0.05,\n  \"is_authentic\": true,\n  \"flags\": [],\n  \"verified_by\": \"PropChain-AI\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Document marked AUTHENTIC', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('AUTHENTIC');",
+                  "  pm.expect(json.fraud_score).to.be.below(0.5);",
+                  "  pm.collectionVariables.set('block_hash', json.hash);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "⚠️ Verify Aadhaar (Suspicious — fraud flags)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/verify-document", "host": ["{{base_url}}"], "path": ["blockchain", "verify-document"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"document_type\": \"Aadhaar Card\",\n  \"document_hash\": \"f1e2d3c4b5a6978869504132201fedcba9876543210abcdef1234567890abcd\",\n  \"fraud_score\": 0.82,\n  \"is_authentic\": false,\n  \"flags\": [\"font_inconsistency\", \"metadata_mismatch\", \"photo_manipulation_detected\"],\n  \"verified_by\": \"PropChain-AI\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Document flagged SUSPICIOUS', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.verdict).to.eql('SUSPICIOUS');",
+                  "  pm.expect(json.fraud_score).to.be.above(0.5);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — Ownership Transfer",
+      "item": [
+        {
+          "name": "✅ Transfer KA-001: Ravi → Priya",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/transfer", "host": ["{{base_url}}"], "path": ["blockchain", "transfer"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"from_owner\": \"Ravi Kumar\",\n  \"to_owner\": \"Priya Sharma\",\n  \"sale_price\": 5500000,\n  \"transaction_ref\": \"TXN-20240228-001\",\n  \"stamp_duty_paid\": true,\n  \"registration_fee_paid\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Ownership transferred', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.block.data.to_owner).to.eql('Priya Sharma');",
+                  "  pm.expect(json.block.transaction_type).to.eql('OWNERSHIP_TRANSFER');",
+                  "  pm.collectionVariables.set('block_hash', json.hash);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "❌ Transfer Unknown Property (should fail 404)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/transfer", "host": ["{{base_url}}"], "path": ["blockchain", "transfer"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"PROP-FAKE-999\",\n  \"from_owner\": \"Nobody\",\n  \"to_owner\": \"Also Nobody\",\n  \"sale_price\": 100,\n  \"transaction_ref\": \"TXN-FAKE-001\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unknown property blocked (404)', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().detail).to.include('not found on chain');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 — Status Update",
+      "item": [
+        {
+          "name": "✅ Mark as ENCUMBERED (bank loan)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/status", "host": ["{{base_url}}"], "path": ["blockchain", "status"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"new_status\": \"ENCUMBERED\",\n  \"reason\": \"Home loan mortgage registered with SBI, Bengaluru branch\",\n  \"updated_by\": \"Sub-Registrar Office, Bengaluru\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status ENCUMBERED recorded', () => {",
+                  "  pm.expect(pm.response.json().new_status).to.eql('ENCUMBERED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Mark as CLEARED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/status", "host": ["{{base_url}}"], "path": ["blockchain", "status"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id}}\",\n  \"new_status\": \"CLEARED\",\n  \"reason\": \"Home loan fully repaid and mortgage released\",\n  \"updated_by\": \"Sub-Registrar Office, Bengaluru\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status CLEARED recorded', () => {",
+                  "  pm.expect(pm.response.json().new_status).to.eql('CLEARED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 — Fractional Ownership",
+      "item": [
+        {
+          "name": "✅ Tokenize MH-002 Commercial (1000 tokens)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/fractional/mint", "host": ["{{base_url}}"], "path": ["blockchain", "fractional", "mint"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id_2}}\",\n  \"total_tokens\": 1000,\n  \"token_symbol\": \"PROP-MH-002-TKN\",\n  \"price_per_token\": 75000,\n  \"owner_name\": \"Infra Holdings Pvt Ltd\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Tokens minted', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.total_value).to.eql(75000000);",
+                  "  pm.expect(json.token_symbol).to.eql('PROP-MH-002-TKN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Transfer 50 tokens: Infra Holdings → Amit Patel",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/blockchain/fractional/transfer", "host": ["{{base_url}}"], "path": ["blockchain", "fractional", "transfer"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{property_id_2}}\",\n  \"from_holder\": \"Infra Holdings Pvt Ltd\",\n  \"to_holder\": \"Amit Patel\",\n  \"tokens_transferred\": 50,\n  \"price_per_token\": 76500\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token transfer recorded', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.total_transaction_value).to.eql(3825000);",
+                  "  pm.expect(json.block.transaction_type).to.eql('FRACTIONAL_TRANSFER');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 — Property Passport",
+      "item": [
+        {
+          "name": "✅ Get Passport for KA-001",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/passport/{{property_id}}", "host": ["{{base_url}}"], "path": ["blockchain", "passport", "{{property_id}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Passport contains full history', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.current_owner).to.eql('Priya Sharma');",
+                  "  pm.expect(json.transaction_history.length).to.be.above(0);",
+                  "  pm.expect(json.is_chain_valid).to.be.true;",
+                  "  console.log('Total blocks:', json.total_blocks);",
+                  "  console.log('Current owner:', json.current_owner);",
+                  "  console.log('Current status:', json.current_status);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Get Passport for MH-002",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/passport/{{property_id_2}}", "host": ["{{base_url}}"], "path": ["blockchain", "passport", "{{property_id_2}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Commercial property passport valid', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.is_chain_valid).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "❌ Passport for Unknown Property (should fail 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/passport/PROP-UNKNOWN-999", "host": ["{{base_url}}"], "path": ["blockchain", "passport", "PROP-UNKNOWN-999"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unknown property returns 404', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 — Chain Verification",
+      "item": [
+        {
+          "name": "✅ Verify KA-001 chain (should be INTACT)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/verify/{{property_id}}", "host": ["{{base_url}}"], "path": ["blockchain", "verify", "{{property_id}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Chain is INTACT', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.status).to.eql('INTACT');",
+                  "  pm.expect(json.is_valid).to.be.true;",
+                  "  pm.expect(json.errors).to.be.empty;",
+                  "  console.log('Blocks verified:', json.total_blocks);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "✅ Verify MH-002 chain (should be INTACT)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/verify/{{property_id_2}}", "host": ["{{base_url}}"], "path": ["blockchain", "verify", "{{property_id_2}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Chain is INTACT', () => {",
+                  "  pm.expect(pm.response.json().status).to.eql('INTACT');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 — Block Explorer",
+      "item": [
+        {
+          "name": "✅ Get Block by Hash (genesis_hash)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/block/{{genesis_hash}}", "host": ["{{base_url}}"], "path": ["blockchain", "block", "{{genesis_hash}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Genesis block returned', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.block_index).to.eql(0);",
+                  "  pm.expect(json.transaction_type).to.eql('GENESIS');",
+                  "  pm.expect(json.previous_hash).to.eql('0000000000000000000000000000000000000000000000000000000000000000');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "❌ Get Block by Invalid Hash (should fail 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/block/0000000000000000000000000000000000000000000000000000000000000000", "host": ["{{base_url}}"], "path": ["blockchain", "block", "0000000000000000000000000000000000000000000000000000000000000000"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid hash returns 404', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 — List All Properties",
+      "item": [
+        {
+          "name": "✅ List All Registered Properties",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/blockchain/properties", "host": ["{{base_url}}"], "path": ["blockchain", "properties"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array of properties', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.be.an('array');",
+                  "  pm.expect(json.length).to.be.above(0);",
+                  "  console.log('Total properties on chain:', json.length);",
+                  "  json.forEach(p => console.log(p.property_id, '—', p.total_blocks, 'blocks'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
