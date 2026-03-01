@@ -31,16 +31,11 @@ async def init_db():
     """
     await blockchain_collection.create_indexes(
         [
-            # Enforce uniqueness: each (property, block_index) pair is one-of-a-kind
+            # Enforce uniqueness + fast lookup: each (property, block_index) is one-of-a-kind
             IndexModel(
                 [("property_id", ASCENDING), ("block_index", ASCENDING)],
                 unique=True,
                 name="unique_property_block",
-            ),
-            # Fast lookup of the latest block for a property
-            IndexModel(
-                [("property_id", ASCENDING), ("block_index", ASCENDING)],
-                name="property_block_lookup",
             ),
             # Fast lookup by hash (for block explorer)
             IndexModel([("hash", ASCENDING)], unique=True, name="unique_hash"),
@@ -49,7 +44,7 @@ async def init_db():
 
     await properties_collection.create_indexes(
         [
-            IndexModel([("id", ASCENDING)], unique=True, name="unique_property_id"),
+            IndexModel([("id", ASCENDING)], unique=True, name="idx_property_id"),
         ]
     )
 

@@ -22,8 +22,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
-BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+BEDROCK_REGION = os.getenv("BEDROCK_REGION", "ap-south-1")
+BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "apac.anthropic.claude-3-haiku-20240307-v1:0")
 SECRETS_MANAGER_REGION = "ap-south-1"
 SECRET_NAME = "keys"
 

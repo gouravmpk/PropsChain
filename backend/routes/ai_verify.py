@@ -3,7 +3,7 @@ from typing import Optional
 from enum import Enum
 
 from models.ai_verify import DocumentType
-from services.ai_service import verify_document, USE_AWS
+from services.ai_service import verify_document, USE_AWS, BEDROCK_MODEL
 from services.blockchain_service import add_transaction
 from models.blockchain import TransactionType
 
@@ -162,7 +162,7 @@ async def verify_property_document(
     result["fraud_indicators"] = result.get("flags", [])
     result["filename"] = result["file_name"]
     result["size_kb"] = result["file_size_kb"]
-    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Textract + Bedrock)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
+    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Bedrock Claude Vision)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
 
     return result
 
@@ -198,7 +198,7 @@ async def get_ai_mode():
     return {
         "mode": "aws" if USE_AWS else "mock",
         "bedrock": USE_AWS,
-        "model": "anthropic.claude-haiku-4-5-20251001" if USE_AWS else "mock",
+        "model": BEDROCK_MODEL if USE_AWS else "mock",
         "message": (
             "Using AWS Bedrock (Claude vision) — direct document read + fraud analysis in one call"
             if USE_AWS
