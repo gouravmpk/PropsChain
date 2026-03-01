@@ -23,7 +23,7 @@ load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 BEDROCK_REGION = os.getenv("BEDROCK_REGION", "ap-south-1")
-BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "apac.anthropic.claude-3-haiku-20240307-v1:0")
+BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "apac.anthropic.claude-sonnet-4-20250514-v1:0")
 SECRETS_MANAGER_REGION = "ap-south-1"
 SECRET_NAME = "keys"
 
@@ -58,11 +58,13 @@ USE_AWS = bool(AWS_KEY and AWS_SECRET)
 
 if USE_AWS:
     import boto3
+    from botocore.config import Config as _BotoConfig
     _bedrock = boto3.client(
         "bedrock-runtime",
         region_name=BEDROCK_REGION,
         aws_access_key_id=AWS_KEY,
         aws_secret_access_key=AWS_SECRET,
+        config=_BotoConfig(connect_timeout=5, read_timeout=30, retries={"max_attempts": 1}),
     )
 
 
@@ -95,10 +97,14 @@ def _media_type(file_name: str) -> str:
 # Bedrock — single-call extract + analyze via Claude vision
 # ---------------------------------------------------------------------------
 
+def _is_nova_model(model_id: str) -> bool:
+    return "amazon.nova" in model_id or "nova" in model_id.lower()
+
+
 def _bedrock_analyze(file_bytes: bytes, file_name: str, document_type: str) -> dict:
-    """Send document directly to Claude via Bedrock. Claude extracts fields and analyzes fraud."""
-    b64 = base64.standard_b64encode(file_bytes).decode("utf-8")
+    """Send document to Bedrock (Nova or Claude). Extracts fields and analyzes fraud."""
     media = _media_type(file_name)
+    b64 = base64.standard_b64encode(file_bytes).decode("utf-8")  # used by Claude path
 
     prompt = f"""You are an expert in Indian property document fraud detection.
 
@@ -132,9 +138,85 @@ overall_assessment must be one of: AUTHENTIC, SUSPICIOUS, FLAGGED
 fraud_score must be 0.0 (clean) to 1.0 (highly suspicious)
 confidence is your confidence in the assessment (0.0 to 1.0)"""
 
-    response = _bedrock.invoke_model(
-        modelId=BEDROCK_MODEL,
-        body=json.dumps({
+    if _is_nova_model(BEDROCK_MODEL):
+        import fitz  # PyMuPDF
+        import io as _io
+        from PIL import Image as _Image
+
+        NOVA_MAX_IMAGES = 20  # Nova converse API limit
+
+        def _jpeg_content(img_bytes: bytes) -> dict:
+            return {"image": {"format": "jpeg", "source": {"bytes": img_bytes}}}
+
+        def _pil_to_jpeg(img: "_Image.Image") -> bytes:
+            buf = _io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=85)
+            return buf.getvalue()
+
+        def _pdf_to_images(raw: bytes) -> list[bytes]:
+            doc = fitz.open(stream=raw, filetype="pdf")
+            pages = []
+            for page in doc:
+                pix = page.get_pixmap(dpi=150)
+                img = _Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                pages.append(_pil_to_jpeg(img))
+            doc.close()
+            return pages
+
+        def _tiff_to_images(raw: bytes) -> list[bytes]:
+            img = _Image.open(_io.BytesIO(raw))
+            frames = []
+            try:
+                while True:
+                    frames.append(_pil_to_jpeg(img.copy()))
+                    img.seek(img.tell() + 1)
+            except EOFError:
+                pass
+            return frames if frames else [_pil_to_jpeg(img)]
+
+        def _stitch_pages(page_jpegs: list[bytes]) -> list[bytes]:
+            """If pages exceed Nova limit, stitch pairs vertically to reduce image count."""
+            while len(page_jpegs) > NOVA_MAX_IMAGES:
+                stitched = []
+                for i in range(0, len(page_jpegs), 2):
+                    if i + 1 < len(page_jpegs):
+                        a = _Image.open(_io.BytesIO(page_jpegs[i]))
+                        b = _Image.open(_io.BytesIO(page_jpegs[i + 1]))
+                        w = max(a.width, b.width)
+                        combined = _Image.new("RGB", (w, a.height + b.height), (255, 255, 255))
+                        combined.paste(a, (0, 0))
+                        combined.paste(b, (0, a.height))
+                        stitched.append(_pil_to_jpeg(combined))
+                    else:
+                        stitched.append(page_jpegs[i])
+                page_jpegs = stitched
+            return page_jpegs
+
+        img_format = media.split("/")[-1]
+
+        if img_format == "pdf":
+            page_jpegs = _pdf_to_images(file_bytes)
+        elif img_format in ("tiff", "tif"):
+            page_jpegs = _tiff_to_images(file_bytes)
+        else:
+            # Single image (jpeg/png) — just re-encode as JPEG for consistency
+            page_jpegs = [_pil_to_jpeg(_Image.open(_io.BytesIO(file_bytes)))]
+
+        page_jpegs = _stitch_pages(page_jpegs)
+        images_content = [_jpeg_content(j) for j in page_jpegs]
+
+        response = _bedrock.converse(
+            modelId=BEDROCK_MODEL,
+            messages=[{
+                "role": "user",
+                "content": images_content + [{"text": prompt}],
+            }],
+            inferenceConfig={"maxTokens": 2048},
+        )
+        content = response["output"]["message"]["content"][0]["text"]
+    else:
+        # Anthropic Claude message format
+        body_payload = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 2048,
             "messages": [{
@@ -142,19 +224,15 @@ confidence is your confidence in the assessment (0.0 to 1.0)"""
                 "content": [
                     {
                         "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media,
-                            "data": b64,
-                        },
+                        "source": {"type": "base64", "media_type": media, "data": b64},
                     },
                     {"type": "text", "text": prompt},
                 ],
             }],
-        }),
-    )
-    body = json.loads(response["body"].read())
-    content = body["content"][0]["text"]
+        }
+        response = _bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(body_payload))
+        body = json.loads(response["body"].read())
+        content = body["content"][0]["text"]
 
     json_match = content[content.find("{"):content.rfind("}") + 1]
     return json.loads(json_match)
@@ -309,11 +387,17 @@ async def verify_document(
 
     # ── Extract + Analyze ─────────────────────────────────────────────────────
     if USE_AWS:
-        ai_result = _bedrock_analyze(file_bytes, file_name, document_type)
-        extracted_fields = ai_result.get("extracted_fields", [])
-    else:
-        extracted_fields = _mock_extract(document_type, is_suspicious_mock)
-        ai_result = _mock_bedrock_result(is_suspicious_mock, document_type, extracted_fields)
+        try:
+            ai_result = _bedrock_analyze(file_bytes, file_name, document_type)
+            extracted_fields = ai_result.get("extracted_fields", [])
+            mode = "aws"
+        except Exception as bedrock_err:
+            import logging
+            logging.error(f"Bedrock call failed: {bedrock_err}")
+            raise
+    # else:
+    #     extracted_fields = _mock_extract(document_type, is_suspicious_mock)
+    #     ai_result = _mock_bedrock_result(is_suspicious_mock, document_type, extracted_fields)
 
     raw_text = "\n".join(f"{f['key']}: {f['value']}" for f in extracted_fields)
 
@@ -361,7 +445,7 @@ async def verify_document(
         "flags": all_flags,
         "rule_checks": [r.model_dump() for r in rule_results],
         "ai_explanation": ai_result.get("explanation", ""),
-        "verified_by": "PropChain-Claude-Bedrock" if USE_AWS else "PropChain-AI-Mock",
+        "verified_by": "PropChain-Claude-Bedrock" if mode == "aws" else "PropChain-AI-Mock",
         "mode": mode,
         "processing_time_ms": elapsed_ms,
     }
