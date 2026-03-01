@@ -21,7 +21,7 @@ class Verdict(str, Enum):
 
 
 class ExtractionMode(str, Enum):
-    AWS = "aws"      # Real Textract + Bedrock
+    AWS = "aws"      # Real Bedrock (Claude vision)
     MOCK = "mock"    # Simulated (no AWS needed)
 
 

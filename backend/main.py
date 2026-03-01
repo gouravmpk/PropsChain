@@ -21,7 +21,7 @@ tags_metadata = [
         "name": "AI Document Verification",
         "description": (
             "Upload property documents (PDF/image) for AI-powered fraud detection. "
-            "Uses **AWS Textract** to extract fields and **AWS Bedrock (Claude)** to analyze for fraud. "
+            "Uses **AWS Bedrock (Claude)** to directly read the document, extract fields, and analyze for fraud. "
             "Falls back to mock simulation if AWS credentials are not configured."
         ),
     },
