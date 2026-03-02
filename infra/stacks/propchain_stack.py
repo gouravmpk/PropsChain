@@ -259,9 +259,9 @@ class PropChainStack(Stack):
         api_resource = api.root.add_resource("api")
         
         # HTTP integration to Fargate backend
-        # Backend runs on https://172.31.43.122:8000 with self-signed cert
+        # Backend runs on https://172.31.0.34:8000 with self-signed cert
         backend_integration = apigw.HttpIntegration(
-            url="https://172.31.43.122:8000/"
+            url="https://172.31.0.34:8000/"
         )
 
         # Add proxy resource: /api/{proxy+} routes all to backend
