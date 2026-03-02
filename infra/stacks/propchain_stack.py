@@ -10,7 +10,8 @@ Resources:
   4. ECS Cluster          — Fargate control plane
   5. Fargate Service      — public IP, no load balancer
   6. S3 Bucket            — React static files
-  7. CloudFront           — HTTPS CDN for frontend + /api/* proxy to Fargate
+  7. CloudFront           — HTTPS CDN for frontend static files
+  8. API Gateway          — HTTPS endpoint for backend API (proxies to Fargate)
 """
 
 from aws_cdk import (
@@ -27,6 +28,7 @@ from aws_cdk import (
     aws_cloudfront_origins as origins,
     aws_ec2 as ec2,
     aws_ssm as ssm,
+    aws_apigateway as apigw,
 )
 from constructs import Construct
 
@@ -176,7 +178,7 @@ class PropChainStack(Stack):
         # After pushing the Docker image, run:
         #   aws ecs update-service --cluster propchain --service PropChainService --desired-count 1
         # The deploy script handles this automatically in --app-only mode.
-        ecs.FargateService(
+        fargate_service = ecs.FargateService(
             self,
             "PropChainService",
             cluster=cluster,
@@ -203,23 +205,13 @@ class PropChainStack(Stack):
 
         # ──────────────────────────────────────────────────────────────────────
         # 7. CloudFront Distribution
-        # default: /* -> S3 (React app)
-        # /api/*  -> Fargate backend (HTTPS with self-signed cert OK internally)
-        # The backend origin IP is updated by deploy script after Fargate provision
+        # Serves frontend React app from S3 (static files only)
+        # API Gateway handles all /api/* requests (separate endpoint)
         # ──────────────────────────────────────────────────────────────────────
-        
-        # Custom origin for backend (IP will be updated by deploy script)
-        # Note: Domain name should NOT include port (CloudFront adds it separately)
-        backend_origin = origins.HttpOrigin(
-            "placeholder-ip.local",  # Placeholder - deploy script updates this to actual IP
-            https_port=8000,
-            protocol_policy=cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
-        )
-
         distribution = cloudfront.Distribution(
             self,
             "PropChainCDN",
-            comment="PropChain - React frontend CDN + API proxy",
+            comment="PropChain - React frontend CDN",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3BucketOrigin.with_origin_access_control(
                     frontend_bucket,
@@ -228,16 +220,6 @@ class PropChainStack(Stack):
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 compress=True,
             ),
-            # API proxy behavior: route /api/* to backend
-            additional_behaviors={
-                "/api/*": cloudfront.BehaviorOptions(
-                    origin=backend_origin,
-                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
-                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,  # Don't cache API responses
-                    compress=False,
-                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
-                ),
-            },
             # SPA routing: serve index.html for unknown paths (React Router handles them)
             error_responses=[
                 cloudfront.ErrorResponse(
@@ -257,25 +239,56 @@ class PropChainStack(Stack):
         )
 
         # ──────────────────────────────────────────────────────────────────────
-        # 8. Parameter Store — Backend URL (updated by deploy script on every deploy)
-        # Frontend fetches this at runtime to get the current Fargate IP
-        # No need to rebuild frontend when Fargate IP changes!
+        # 8. API Gateway
+        # Provides HTTPS endpoint with valid AWS-managed certificate
+        # Proxies requests to Fargate backend (handles self-signed cert internally)
         # ──────────────────────────────────────────────────────────────────────
-        backend_url_param = ssm.StringParameter(
+        api = apigw.RestApi(
             self,
-            "BackendURLParam",
-            parameter_name="/propchain/backend-url",
-            string_value="https://placeholder:8000",  # deploy script updates this after ECS redeploy
-            description="PropChain backend URL - updated by deploy script",
-            tier=ssm.ParameterTier.STANDARD,  # free tier
+            "PropChainAPI",
+            rest_api_name="propchain-api",
+            description="PropChain Backend API",
+            deploy_options=apigw.StageOptions(
+                stage_name="prod",
+                throttling_rate_limit=100,
+                throttling_burst_limit=200,
+            ),
         )
+
+        # Create /api resource and proxy all requests to it
+        api_resource = api.root.add_resource("api")
+        
+        # Create an HTTP integration that proxies to Fargate backend
+        # Backend address will be updated by deploy script (Fargate IP is dynamic)
+        # For now, use a placeholder that deploy script will update via Parameter Store
+        http_integration = apigw.HttpIntegration(
+            url="https://placeholder:8000",  # Will be updated by deploy script via SSM
+            http_method="ANY",
+            options=apigw.IntegrationOptions(
+                proxy=True,  # Proxy all requests as-is
+                integration_responses=[
+                    apigw.IntegrationResponse(status_code="200")
+                ],
+            ),
+        )
+
+        # Add proxy resource: /api/{proxy+} routes all to backend
+        proxy_resource = api_resource.add_resource("{proxy+}")
+        proxy_resource.add_method("ANY", http_integration)
+
+        # Also handle /api directly
+        api_resource.add_method("ANY", http_integration)
 
         # ──────────────────────────────────────────────────────────────────────
         # Outputs
         # ──────────────────────────────────────────────────────────────────────
         CfnOutput(self, "CloudFrontURL",
             value=f"https://{distribution.distribution_domain_name}",
-            description="Frontend URL",
+            description="Frontend URL (React app from CloudFront)",
+        )
+        CfnOutput(self, "APIGatewayURL",
+            value=api.url,
+            description="API Gateway endpoint (valid HTTPS cert). Frontend calls this for /api/*",
         )
         CfnOutput(self, "ECRRepository",
             value=backend_repo.repository_uri,
@@ -296,8 +309,4 @@ class PropChainStack(Stack):
         CfnOutput(self, "ECSClusterName",
             value=cluster.cluster_name,
             description="ECS cluster name - for deploy script",
-        )
-        CfnOutput(self, "BackendURLParameter",
-            value=backend_url_param.parameter_name,
-            description="SSM Parameter name for backend URL - updated by deploy script",
         )

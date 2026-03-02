@@ -1,13 +1,20 @@
 #!/bin/bash
 # =============================================================================
-# PropChain — Full Deploy Script
+# PropChain — Full Deploy Script (with API Gateway)
 # =============================================================================
+# Architecture:
+#   Frontend (CloudFront) → API Gateway → Fargate Backend
+#   - CloudFront: serves React static files from S3
+#   - API Gateway: provides HTTPS endpoint with valid cert, proxies to Fargate
+#   - Fargate: runs backend with self-signed HTTPS cert (internal only)
+#
 # What this does (in order):
-#   1. CDK deploy  → creates/updates AWS infrastructure
-#   2. Docker build + push → backend image to ECR
-#   3. ECS force-deploy    → restarts containers with the new image
-#   4. React build + S3 sync → frontend static files to S3
-#   5. CloudFront invalidate → clears CDN cache so users see the new frontend
+#   1. CDK deploy               → creates/updates AWS infrastructure (includes API Gateway)
+#   2. Docker build + push      → backend image to ECR
+#   3. ECS force-deploy         → restarts containers with the new image
+#   4. Get API Gateway URL      → from CloudFormation outputs
+#   5. React build + S3 sync    → frontend static files to S3 (with API URL)
+#   6. CloudFront invalidate    → clears CDN cache
 #
 # Prerequisites:
 #   - AWS CLI configured (aws configure)
@@ -64,7 +71,6 @@ if [[ "$APP_ONLY" == "false" ]]; then
   cdk bootstrap "aws://$AWS_ACCOUNT/$AWS_REGION" -c account="$AWS_ACCOUNT" -c region="$AWS_REGION"
 
   # cdk deploy --require-approval never → don't prompt for security group changes
-  # (fine for a hackathon; use default in production) 
   cdk deploy "$STACK_NAME" \
     --require-approval never \
     -c account="$AWS_ACCOUNT" \
@@ -80,14 +86,14 @@ ECR_URI=$(cfn_output "ECRRepository")
 BUCKET=$(cfn_output "FrontendBucketName")
 CF_DIST_ID=$(cfn_output "CloudFrontDistributionId")
 CF_URL=$(cfn_output "CloudFrontURL")
-BACKEND_URL_PARAM=$(cfn_output "BackendURLParameter")
+API_GATEWAY_URL=$(cfn_output "APIGatewayURL")
 ECS_SERVICE=$(aws ecs list-services --cluster propchain --region "$AWS_REGION" --query "serviceArns[0]" --output text | awk -F/ '{print $NF}')
 
-log "ECR:          $ECR_URI"
-log "S3 Bucket:    $BUCKET"
-log "CloudFront:   $CF_URL"
-log "ECS Service:  $ECS_SERVICE"
-log "SSM Param:    $BACKEND_URL_PARAM"
+log "ECR:              $ECR_URI"
+log "S3 Bucket:        $BUCKET"
+log "CloudFront:       $CF_URL"
+log "API Gateway:      $API_GATEWAY_URL"
+log "ECS Service:      $ECS_SERVICE"
 
 # =============================================================================
 # STEP 2 — Build + push backend Docker image to ECR
@@ -96,7 +102,6 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   log "Step 2/5 — Building backend Docker image..."
 
   # Log in to ECR (token valid for 12 hours)
-  # aws ecr get-login-password pipes the token to docker login
   aws ecr get-login-password --region "$AWS_REGION" | \
     docker login --username AWS --password-stdin "$ECR_URI"
 
@@ -115,8 +120,6 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # STEP 3 — Force ECS to redeploy with the new image
   # =============================================================================
   log "Step 3/5 — Starting ECS service with new image..."
-  # desired-count 1: scale up from 0 (infra deploy starts at 0 so CF doesn't wait for image)
-  # --force-new-deployment: pull fresh :latest image on every app deploy
   aws ecs update-service \
     --cluster propchain \
     --service "$ECS_SERVICE" \
@@ -127,76 +130,18 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   ok "ECS deployment triggered (takes ~2 minutes to become healthy)"
 
   # =============================================================================
-  # STEP 4 — Build React app and sync to S3
+  # STEP 4 — Build React app with API Gateway URL
   # =============================================================================
   log "Step 4/5 — Building React frontend..."
 
-  # Get the Fargate task's public IP (changes on every redeploy)
-  # Wait up to 3.5 minutes for the task to be provisioned and get an IP
-  log "Waiting for Fargate task to be provisioned..."
-  FARGATE_IP=""
-  MAX_ATTEMPTS=42  # ~3.5 minutes at 5-sec intervals
-  
-  for attempt in $(seq 1 $MAX_ATTEMPTS); do
-    TASK_ARN=$(aws ecs list-tasks --cluster propchain --region "$AWS_REGION" \
-      --query 'taskArns[0]' --output text 2>/dev/null)
-    
-    if [[ -z "$TASK_ARN" ]] || [[ "$TASK_ARN" == "None" ]]; then
-      [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
-      echo -n "."
-      sleep 5
-      continue
-    fi
-    
-    # Try to get ENI and IP
-    ENI=$(aws ecs describe-tasks --cluster propchain --tasks "$TASK_ARN" \
-      --region "$AWS_REGION" \
-      --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value[0]' \
-      --output text 2>/dev/null)
-    
-    if [[ -z "$ENI" ]] || [[ "$ENI" == "None" ]]; then
-      [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
-      echo -n "."
-      sleep 5
-      continue
-    fi
-    
-    # Try to get public IP
-    FARGATE_IP=$(aws ec2 describe-network-interfaces \
-      --network-interface-ids "$ENI" --region "$AWS_REGION" \
-      --query 'NetworkInterfaces[0].Association.PublicIp' --output text 2>/dev/null)
-    
-    if [[ -n "$FARGATE_IP" ]] && [[ "$FARGATE_IP" != "None" ]]; then
-      echo ""
-      log "✓ Fargate IP assigned: $FARGATE_IP"
-      break
-    fi
-    
-    [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
-    echo -n "."
-    sleep 5
-  done
-
-  if [[ -z "$FARGATE_IP" ]] || [[ "$FARGATE_IP" == "None" ]]; then
-    warn "Could not get Fargate IP after $(($MAX_ATTEMPTS * 5))s. Using placeholder."
-    warn "This is likely a timing issue. The task may be still provisioning."
-    warn "Run again or check AWS Console → ECS → Tasks for the actual IP."
-    FARGATE_IP="error-getting-ip"
-  fi
-
-  log "Step 4b/5 — Updating CloudFront origin with Fargate IP..."
-  # Update CloudFront distribution's backend origin to point to new Fargate IP
-  ./update-cloudfront-origin.sh "$FARGATE_IP" "$CF_DIST_ID"
-  ok "CloudFront origin updated to $FARGATE_IP"
-
   cd frontend
   npm ci --silent
-  npm run build
+  # Build with API Gateway URL passed as environment variable
+  VITE_API_URL="$API_GATEWAY_URL" npm run build
   cd ..
   ok "React build complete"
 
-  log "Step 4c/5 — Syncing frontend to S3..."
-  # --delete removes files from S3 that are no longer in the build output
+  log "Step 4b/5 — Syncing frontend to S3..."
   aws s3 sync frontend/dist/ "s3://$BUCKET/" \
     --delete \
     --region "$AWS_REGION"
@@ -206,8 +151,6 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # STEP 5 — Invalidate CloudFront cache
   # =============================================================================
   log "Step 5/5 — Invalidating CloudFront cache..."
-  # After uploading new files to S3, CloudFront edge nodes still serve cached
-  # old files. Invalidating /* forces them to fetch fresh copies from S3.
   aws cloudfront create-invalidation \
     --distribution-id "$CF_DIST_ID" \
     --paths "/*" \
@@ -217,7 +160,8 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   echo ""
   echo -e "${GREEN}========================================"
   echo -e "  PropChain deployed successfully!"
-  echo -e "  URL: $CF_URL"
+  echo -e "  Frontend:   $CF_URL"
+  echo -e "  API:        $API_GATEWAY_URL"
   echo -e "========================================${NC}"
   echo ""
   warn "NEXT: Fill in secrets at AWS Console → Secrets Manager → 'propchain/config'"

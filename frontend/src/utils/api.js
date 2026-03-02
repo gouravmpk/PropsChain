@@ -1,20 +1,19 @@
 import axios from 'axios'
 
 /**
- * API Configuration Strategy:
+ * API Configuration
  * 
- * PROD: Uses CloudFront URL for API proxy
- *   - https://d35swpqfjmv67g.cloudfront.net/api/* proxies to backend
- *   - CloudFront handles HTTPS properly (valid cert)
- *   - Backend can use self-signed cert (trusted internally)
- *   - No cross-origin issues since same domain
+ * PROD: Uses API Gateway endpoint from build-time environment variable
+ *   - VITE_API_URL should be set to API Gateway URL at build time
+ *   - API Gateway has valid AWS-managed HTTPS certificate
+ *   - Proxies to Fargate backend (handles self-signed cert internally)
  * 
  * DEV: Uses Vite proxy (vite.config.js) → /api proxies to localhost:8000
  */
 
-// Determine if we're in production (CloudFront) or dev (local)
-const isProduction = import.meta.env.PROD
-const baseURL = isProduction ? '/api' : '/api'  // Both use /api, Vite/CF handle the proxy
+// Get API Gateway URL from build environment
+const apiUrl = import.meta.env.VITE_API_URL || '/api'
+const baseURL = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`
 
 const API = axios.create({ baseURL })
 
