@@ -265,7 +265,6 @@ class PropChainStack(Stack):
             url="https://placeholder:8000",  # Will be updated by deploy script via SSM
             http_method="ANY",
             options=apigw.IntegrationOptions(
-                proxy=True,  # Proxy all requests as-is
                 integration_responses=[
                     apigw.IntegrationResponse(status_code="200")
                 ],
@@ -274,10 +273,14 @@ class PropChainStack(Stack):
 
         # Add proxy resource: /api/{proxy+} routes all to backend
         proxy_resource = api_resource.add_resource("{proxy+}")
-        proxy_resource.add_method("ANY", http_integration)
+        proxy_resource.add_method("ANY", http_integration, method_responses=[
+            apigw.MethodResponse(status_code="200")
+        ])
 
         # Also handle /api directly
-        api_resource.add_method("ANY", http_integration)
+        api_resource.add_method("ANY", http_integration, method_responses=[
+            apigw.MethodResponse(status_code="200")
+        ])
 
         # ──────────────────────────────────────────────────────────────────────
         # Outputs
