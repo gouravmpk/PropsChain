@@ -38,6 +38,9 @@ seed.py
 # Logs
 *.log
 /tmp/
+deploy-*.txt
+deployment-*.log
+check-deployment-*.log
 
 # MongoDB local data
 data/
