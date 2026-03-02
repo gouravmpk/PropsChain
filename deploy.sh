@@ -80,12 +80,14 @@ ECR_URI=$(cfn_output "ECRRepository")
 BUCKET=$(cfn_output "FrontendBucketName")
 CF_DIST_ID=$(cfn_output "CloudFrontDistributionId")
 CF_URL=$(cfn_output "CloudFrontURL")
+BACKEND_URL_PARAM=$(cfn_output "BackendURLParameter")
 ECS_SERVICE=$(aws ecs list-services --cluster propchain --region "$AWS_REGION" --query "serviceArns[0]" --output text | awk -F/ '{print $NF}')
 
 log "ECR:          $ECR_URI"
 log "S3 Bucket:    $BUCKET"
 log "CloudFront:   $CF_URL"
 log "ECS Service:  $ECS_SERVICE"
+log "SSM Param:    $BACKEND_URL_PARAM"
 
 # =============================================================================
 # STEP 2 — Build + push backend Docker image to ECR
@@ -142,16 +144,30 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   log "Fargate API IP: $FARGATE_IP"
 
   cd frontend
-  # Point frontend directly at the Fargate task's public IP (simple & cheap)
-  # Browser allows HTTP calls from HTTPS to different domain (cross-origin)
-  # Enable CORS on FastAPI backend to allow requests from CloudFront domain
-  echo "VITE_API_URL=http://$FARGATE_IP:8000" > .env.production
+  # Generate config file with current Fargate IP
+  # This will be served at /.well-known/propchain-config.json
+  ../generate-config.sh "$FARGATE_IP" "public"
+  
+  # Build React WITHOUT hardcoding the backend URL
+  # Frontend now reads URL from config at runtime (see api.js)
   npm ci --silent
   npm run build
   cd ..
   ok "React build complete"
 
-  log "Step 4/5 — Syncing frontend to S3..."
+  log "Step 4b/5 — Updating Parameter Store with new Fargate IP..."
+  # Update the SSM Parameter with the new Fargate IP
+  # Frontend will fetch this at startup without needing a rebuild
+  BACKEND_URL="https://$FARGATE_IP:8000"
+  aws ssm put-parameter \
+    --name "$BACKEND_URL_PARAM" \
+    --value "$BACKEND_URL" \
+    --overwrite \
+    --region "$AWS_REGION" \
+    --output json > /dev/null
+  log "Parameter Store updated: $BACKEND_URL"
+
+  log "Step 4c/5 — Syncing frontend to S3..."
   # --delete removes files from S3 that are no longer in the build output
   aws s3 sync frontend/dist/ "s3://$BUCKET/" \
     --delete \
@@ -161,6 +177,7 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # =============================================================================
   # STEP 5 — Invalidate CloudFront cache
   # =============================================================================
+  log "Step 5/5 — Invalidating CloudFront cache..."
   log "Step 5/5 — Invalidating CloudFront cache..."
   # After uploading new files to S3, CloudFront edge nodes still serve cached
   # old files. Invalidating /* forces them to fetch fresh copies from S3.

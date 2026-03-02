@@ -26,6 +26,7 @@ from aws_cdk import (
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_ec2 as ec2,
+    aws_ssm as ssm,
 )
 from constructs import Construct
 
@@ -241,6 +242,20 @@ class PropChainStack(Stack):
         )
 
         # ──────────────────────────────────────────────────────────────────────
+        # 8. Parameter Store — Backend URL (updated by deploy script on every deploy)
+        # Frontend fetches this at runtime to get the current Fargate IP
+        # No need to rebuild frontend when Fargate IP changes!
+        # ──────────────────────────────────────────────────────────────────────
+        backend_url_param = ssm.StringParameter(
+            self,
+            "BackendURLParam",
+            parameter_name="/propchain/backend-url",
+            string_value="https://placeholder:8000",  # deploy script updates this after ECS redeploy
+            description="PropChain backend URL - updated by deploy script",
+            tier=ssm.ParameterTier.STANDARD,  # free tier
+        )
+
+        # ──────────────────────────────────────────────────────────────────────
         # Outputs
         # ──────────────────────────────────────────────────────────────────────
         CfnOutput(self, "CloudFrontURL",
@@ -266,4 +281,8 @@ class PropChainStack(Stack):
         CfnOutput(self, "ECSClusterName",
             value=cluster.cluster_name,
             description="ECS cluster name - for deploy script",
+        )
+        CfnOutput(self, "BackendURLParameter",
+            value=backend_url_param.parameter_name,
+            description="SSM Parameter name for backend URL - updated by deploy script",
         )
