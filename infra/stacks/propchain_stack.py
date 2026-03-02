@@ -258,27 +258,22 @@ class PropChainStack(Stack):
         # Create /api resource and proxy all requests to it
         api_resource = api.root.add_resource("api")
         
-        # Create an HTTP integration that proxies to Fargate backend
-        # Backend address will be updated by deploy script (Fargate IP is dynamic)
-        # For now, use a placeholder that deploy script will update via Parameter Store
-        http_integration = apigw.HttpIntegration(
-            url="https://placeholder:8000",  # Will be updated by deploy script via SSM
-            http_method="ANY",
-            options=apigw.IntegrationOptions(
-                integration_responses=[
-                    apigw.IntegrationResponse(status_code="200")
-                ],
-            ),
+        # Use a mock integration as placeholder
+        # The deploy script will update this to HTTP integration pointing to Fargate after IP is assigned
+        mock_integration = apigw.MockIntegration(
+            integration_responses=[
+                apigw.IntegrationResponse(status_code="200")
+            ]
         )
 
         # Add proxy resource: /api/{proxy+} routes all to backend
         proxy_resource = api_resource.add_resource("{proxy+}")
-        proxy_resource.add_method("ANY", http_integration, method_responses=[
+        proxy_resource.add_method("ANY", mock_integration, method_responses=[
             apigw.MethodResponse(status_code="200")
         ])
 
         # Also handle /api directly
-        api_resource.add_method("ANY", http_integration, method_responses=[
+        api_resource.add_method("ANY", mock_integration, method_responses=[
             apigw.MethodResponse(status_code="200")
         ])
 
