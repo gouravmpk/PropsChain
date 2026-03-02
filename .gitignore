@@ -8,6 +8,11 @@ __pycache__/
 dist/
 build/
 
+# SSL/TLS certificates
+*.key
+*.pem
+server.crt
+
 # Virtual environment
 backend/venv/
 venv/
