@@ -221,7 +221,7 @@
       "HealthCheck": {
        "Command": [
         "CMD-SHELL",
-        "curl -f http://localhost:8000/health || exit 1"
+        "curl -sk https://localhost:8000/api/health || exit 1"
        ],
        "Interval": 30,
        "Retries": 3,
@@ -746,10 +746,311 @@
     "aws:cdk:path": "PropChainStack/PropChainCDN/Resource"
    }
   },
+  "PropChainAPI9771B62E": {
+   "Type": "AWS::ApiGateway::RestApi",
+   "Properties": {
+    "Description": "PropChain Backend API",
+    "Name": "propchain-api"
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Resource"
+   }
+  },
+  "PropChainAPICloudWatchRole27BF8056": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "apigateway.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+       ]
+      ]
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/CloudWatchRole/Resource"
+   }
+  },
+  "PropChainAPIAccountE4D58E83": {
+   "Type": "AWS::ApiGateway::Account",
+   "Properties": {
+    "CloudWatchRoleArn": {
+     "Fn::GetAtt": [
+      "PropChainAPICloudWatchRole27BF8056",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "PropChainAPI9771B62E"
+   ],
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Account"
+   }
+  },
+  "PropChainAPIDeploymentBC375471122e68e8c91b53ef129501c284a65df1": {
+   "Type": "AWS::ApiGateway::Deployment",
+   "Properties": {
+    "Description": "PropChain Backend API",
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "DependsOn": [
+    "PropChainAPIapiproxyANY4D67F853",
+    "PropChainAPIapiproxyOPTIONS3663BB07",
+    "PropChainAPIapiproxyCE391128",
+    "PropChainAPIapiANY37F3B83F",
+    "PropChainAPIapiOPTIONSC2ACBEC3",
+    "PropChainAPIapiC327971A"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Deployment/Resource"
+   }
+  },
+  "PropChainAPIDeploymentStageprodD4F6B33F": {
+   "Type": "AWS::ApiGateway::Stage",
+   "Properties": {
+    "DeploymentId": {
+     "Ref": "PropChainAPIDeploymentBC375471122e68e8c91b53ef129501c284a65df1"
+    },
+    "MethodSettings": [
+     {
+      "DataTraceEnabled": false,
+      "HttpMethod": "*",
+      "ResourcePath": "/*",
+      "ThrottlingBurstLimit": 200,
+      "ThrottlingRateLimit": 100
+     }
+    ],
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    },
+    "StageName": "prod"
+   },
+   "DependsOn": [
+    "PropChainAPIAccountE4D58E83"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/DeploymentStage.prod/Resource"
+   }
+  },
+  "PropChainAPIapiC327971A": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Fn::GetAtt": [
+      "PropChainAPI9771B62E",
+      "RootResourceId"
+     ]
+    },
+    "PathPart": "api",
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/Resource"
+   }
+  },
+  "PropChainAPIapiproxyCE391128": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "PropChainAPIapiC327971A"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/{proxy+}/Resource"
+   }
+  },
+  "PropChainAPIapiproxyANY4D67F853": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+        "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+       },
+       "StatusCode": "200"
+      }
+     ],
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "200"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "PropChainAPIapiproxyCE391128"
+    },
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/{proxy+}/ANY/Resource"
+   }
+  },
+  "PropChainAPIapiproxyOPTIONS3663BB07": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+        "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+       },
+       "StatusCode": "200"
+      }
+     ],
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "200"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "PropChainAPIapiproxyCE391128"
+    },
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "PropChainAPIapiANY37F3B83F": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+        "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+       },
+       "StatusCode": "200"
+      }
+     ],
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "200"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "PropChainAPIapiC327971A"
+    },
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/ANY/Resource"
+   }
+  },
+  "PropChainAPIapiOPTIONSC2ACBEC3": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+        "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+       },
+       "StatusCode": "200"
+      }
+     ],
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "200"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "PropChainAPIapiC327971A"
+    },
+    "RestApiId": {
+     "Ref": "PropChainAPI9771B62E"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainAPI/Default/api/OPTIONS/Resource"
+   }
+  },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3VRTW/CMAz9LdxDBnTSznxou0waortPIZjOaxsjO2FCVf77khYGm7aT33u2Y794pqcPEz0ZmU8Z2109bnCru9IbW6skvXVgWXcbOJCgJz6p5d5dWVSS8uClNc5UkCrLnueqAUWFpk0PUAN9a45ratD2Lw0oKrCiu2UTxANn/QIfDVfGw6uRegV7dOiRXC74rZDzBh3wjXbuLYGPaGHYqIdRNVSlec9UPTGFQ05dcF5l1rsIjP70nf8hJNeF7hbB1oPTMxrC1dwtj8o2FHZ7TovqboXiGbeh37MsXhgrdHNrQSQ7YWpy/z/ybXOMagNCgbPB9GXUXmm+05+pNdMRd8ALI6DmIuDTudOkqh8a/CGkq61P/p3cXaGn97oYfQjimIPz2ILeDPELoprdQDkCAAA="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3VSyU7DQAz9lt6nQ9sgce4iuICoGu5oOnGDSTKOZmkVRfl3ZumSIjjN87Of7RdnwedPMz6biJOZyqKa1rjnfW6FrJinPnuQmvc7aMmgJd2x9UHdooEZnwdrGqFECb4yj3GoSmhgKBrfgGqI0vBuqUYZOyU0MJCG9+vaGQs68Bf4LHQpLHwIU23ggAotkgoFvxlSVqACPeLO2hz0ESWkjSIcWE2ln/dK5Ysm14bUBYdVFtGF02i7a/6O8K4z3q+crJLTM0rPzdw4HpisyRUH7Rfl/QaN1bh3cc88e9dYolpKCcYEJ5rqoP+HHosHJloMLk+iC1cydtliOtEV+gbklGUbaGvqGlBx51Hkj12m7xOBl5LTElbC3IJzz4TfwH5REaiEhmFU5w9HzZ+y+9RW0xEL0HHM0hiwYTyqMlp3tnX+39l2vr96yPj8kWeTb4M41d4LNsB36f0BQ3/TI78CAAA="
    },
    "Metadata": {
     "aws:cdk:path": "PropChainStack/CDKMetadata/Default"
@@ -757,8 +1058,30 @@
   }
  },
  "Outputs": {
+  "PropChainAPIEndpoint59BC6FE8": {
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "PropChainAPI9771B62E"
+      },
+      ".execute-api.ap-south-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "PropChainAPIDeploymentStageprodD4F6B33F"
+      },
+      "/"
+     ]
+    ]
+   }
+  },
   "CloudFrontURL": {
-   "Description": "Frontend URL",
+   "Description": "Frontend URL (React app from CloudFront)",
    "Value": {
     "Fn::Join": [
      "",
@@ -770,6 +1093,29 @@
         "DomainName"
        ]
       }
+     ]
+    ]
+   }
+  },
+  "APIGatewayURL": {
+   "Description": "API Gateway endpoint (valid HTTPS cert). Frontend calls this for /api/*",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "PropChainAPI9771B62E"
+      },
+      ".execute-api.ap-south-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "PropChainAPIDeploymentStageprodD4F6B33F"
+      },
+      "/"
      ]
     ]
    }

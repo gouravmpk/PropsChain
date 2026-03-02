@@ -18,7 +18,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::264982087490:role/cdk-hnb659fds-deploy-role-264982087490-ap-south-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::264982087490:role/cdk-hnb659fds-cfn-exec-role-264982087490-ap-south-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-264982087490-ap-south-1/a6b34b81269d1ea7db43415774f0133b9f57ae7fa2d48c9b085288f17f64dfd4.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-264982087490-ap-south-1/fe583e6d539a9bf042c54e4b472aba868f479db43d43b1e525cc9dd904f2d151.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -148,10 +148,88 @@
             "data": "PropChainCDN6475E43B"
           }
         ],
+        "/PropChainStack/PropChainAPI/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPI9771B62E"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/CloudWatchRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPICloudWatchRole27BF8056"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Account": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIAccountE4D58E83"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Deployment/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIDeploymentBC375471122e68e8c91b53ef129501c284a65df1"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/DeploymentStage.prod/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIDeploymentStageprodD4F6B33F"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Endpoint": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIEndpoint59BC6FE8"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiC327971A"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/{proxy+}/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiproxyCE391128"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/{proxy+}/ANY/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiproxyANY4D67F853"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/{proxy+}/OPTIONS/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiproxyOPTIONS3663BB07"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/ANY/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiANY37F3B83F"
+          }
+        ],
+        "/PropChainStack/PropChainAPI/Default/api/OPTIONS/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainAPIapiOPTIONSC2ACBEC3"
+          }
+        ],
         "/PropChainStack/CloudFrontURL": [
           {
             "type": "aws:cdk:logicalId",
             "data": "CloudFrontURL"
+          }
+        ],
+        "/PropChainStack/APIGatewayURL": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "APIGatewayURL"
           }
         ],
         "/PropChainStack/ECRRepository": [
