@@ -142,7 +142,9 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   log "Fargate API IP: $FARGATE_IP"
 
   cd frontend
-  # Point frontend directly at the Fargate task (no ALB / no CF /api proxy)
+  # Point frontend directly at the Fargate task's public IP (simple & cheap)
+  # Browser allows HTTP calls from HTTPS to different domain (cross-origin)
+  # Enable CORS on FastAPI backend to allow requests from CloudFront domain
   echo "VITE_API_URL=http://$FARGATE_IP:8000" > .env.production
   npm ci --silent
   npm run build
