@@ -132,16 +132,51 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   log "Step 4/5 — Building React frontend..."
 
   # Get the Fargate task's public IP (changes on every redeploy)
-  TASK_ARN=$(aws ecs list-tasks --cluster propchain --region "$AWS_REGION" \
-    --query 'taskArns[0]' --output text)
-  ENI=$(aws ecs describe-tasks --cluster propchain --tasks "$TASK_ARN" \
-    --region "$AWS_REGION" \
-    --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
-    --output text)
-  FARGATE_IP=$(aws ec2 describe-network-interfaces \
-    --network-interface-ids "$ENI" --region "$AWS_REGION" \
-    --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
-  log "Fargate API IP: $FARGATE_IP"
+  # Wait up to 2 minutes for the task to be provisioned and get an IP
+  log "Waiting for Fargate task to be provisioned..."
+  FARGATE_IP=""
+  for attempt in {1..24}; do
+    TASK_ARN=$(aws ecs list-tasks --cluster propchain --region "$AWS_REGION" \
+      --query 'taskArns[0]' --output text)
+    
+    if [[ -z "$TASK_ARN" ]] || [[ "$TASK_ARN" == "None" ]]; then
+      echo -n "."
+      sleep 5
+      continue
+    fi
+    
+    # Try to get ENI and IP
+    ENI=$(aws ecs describe-tasks --cluster propchain --tasks "$TASK_ARN" \
+      --region "$AWS_REGION" \
+      --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value[0]' \
+      --output text 2>/dev/null)
+    
+    if [[ -z "$ENI" ]] || [[ "$ENI" == "None" ]]; then
+      echo -n "."
+      sleep 5
+      continue
+    fi
+    
+    # Try to get public IP
+    FARGATE_IP=$(aws ec2 describe-network-interfaces \
+      --network-interface-ids "$ENI" --region "$AWS_REGION" \
+      --query 'NetworkInterfaces[0].Association.PublicIp' --output text 2>/dev/null)
+    
+    if [[ -n "$FARGATE_IP" ]] && [[ "$FARGATE_IP" != "None" ]]; then
+      echo ""
+      break
+    fi
+    
+    echo -n "."
+    sleep 5
+  done
+
+  if [[ -z "$FARGATE_IP" ]] || [[ "$FARGATE_IP" == "None" ]]; then
+    warn "Could not get Fargate IP (task still provisioning). Using placeholder."
+    FARGATE_IP="error-getting-ip"
+  else
+    log "Fargate API IP: $FARGATE_IP"
+  fi
 
   cd frontend
   # Generate config file with current Fargate IP
