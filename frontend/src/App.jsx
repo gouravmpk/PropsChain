@@ -12,6 +12,7 @@ import PropertyDetail from './pages/PropertyDetail'
 import RegisterProperty from './pages/RegisterProperty'
 import Marketplace from './pages/Marketplace'
 import AIVerification from './pages/AIVerification'
+import CrossVerify from './pages/CrossVerify'
 import Blockchain from './pages/Blockchain'
 import Transactions from './pages/Transactions'
 
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="register-property" element={<RegisterProperty />} />
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="ai-verify" element={<AIVerification />} />
+            <Route path="cross-verify" element={<CrossVerify />} />
             <Route path="blockchain" element={<Blockchain />} />
             <Route path="transactions" element={<Transactions />} />
           </Route>

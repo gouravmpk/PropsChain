@@ -1,0 +1,215 @@
+{
+  "version": "38.0.1",
+  "artifacts": {
+    "PropChainStack.assets": {
+      "type": "cdk:asset-manifest",
+      "properties": {
+        "file": "PropChainStack.assets.json",
+        "requiresBootstrapStackVersion": 6,
+        "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
+      }
+    },
+    "PropChainStack": {
+      "type": "aws:cloudformation:stack",
+      "environment": "aws://264982087490/ap-south-1",
+      "properties": {
+        "templateFile": "PropChainStack.template.json",
+        "terminationProtection": false,
+        "validateOnSynth": false,
+        "assumeRoleArn": "arn:${AWS::Partition}:iam::264982087490:role/cdk-hnb659fds-deploy-role-264982087490-ap-south-1",
+        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::264982087490:role/cdk-hnb659fds-cfn-exec-role-264982087490-ap-south-1",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-264982087490-ap-south-1/a6b34b81269d1ea7db43415774f0133b9f57ae7fa2d48c9b085288f17f64dfd4.json",
+        "requiresBootstrapStackVersion": 6,
+        "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
+        "additionalDependencies": [
+          "PropChainStack.assets"
+        ],
+        "lookupRole": {
+          "arn": "arn:${AWS::Partition}:iam::264982087490:role/cdk-hnb659fds-lookup-role-264982087490-ap-south-1",
+          "requiresBootstrapStackVersion": 8,
+          "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
+        }
+      },
+      "dependencies": [
+        "PropChainStack.assets"
+      ],
+      "metadata": {
+        "/PropChainStack/BackendRepo/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BackendRepo7FFBAD06"
+          }
+        ],
+        "/PropChainStack/PropChainSecrets/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainSecrets78F40E4D"
+          }
+        ],
+        "/PropChainStack/PropChainExecutionRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainExecutionRole63F61FD5"
+          }
+        ],
+        "/PropChainStack/PropChainExecutionRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainExecutionRoleDefaultPolicyE6DB357E"
+          }
+        ],
+        "/PropChainStack/PropChainTaskRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainTaskRole7360BCF1"
+          }
+        ],
+        "/PropChainStack/PropChainTaskRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainTaskRoleDefaultPolicyDFC16D14"
+          }
+        ],
+        "/PropChainStack/PropChainCluster/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainCluster971320D8"
+          }
+        ],
+        "/PropChainStack/PropChainTaskDef/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainTaskDef13CA9FF0"
+          }
+        ],
+        "/PropChainStack/PropChainTaskDef/BackendContainer/LogGroup/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainTaskDefBackendContainerLogGroup30303663"
+          }
+        ],
+        "/PropChainStack/PropChainSG/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainSG53E41682"
+          }
+        ],
+        "/PropChainStack/PropChainService/Service": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainService53A32AEF"
+          }
+        ],
+        "/PropChainStack/FrontendBucket/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "FrontendBucketEFE2E19C"
+          }
+        ],
+        "/PropChainStack/FrontendBucket/Policy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "FrontendBucketPolicy1DFF75D9"
+          }
+        ],
+        "/PropChainStack/FrontendBucket/AutoDeleteObjectsCustomResource/Default": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "FrontendBucketAutoDeleteObjectsCustomResourceDB860B32"
+          }
+        ],
+        "/PropChainStack/Custom::S3AutoDeleteObjectsCustomResourceProvider": [
+          {
+            "type": "aws:cdk:is-custom-resource-handler-customResourceProvider",
+            "data": true
+          }
+        ],
+        "/PropChainStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+          }
+        ],
+        "/PropChainStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F"
+          }
+        ],
+        "/PropChainStack/PropChainCDN/Origin1/S3OriginAccessControl/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainCDNOrigin1S3OriginAccessControl5729FCCD"
+          }
+        ],
+        "/PropChainStack/PropChainCDN/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "PropChainCDN6475E43B"
+          }
+        ],
+        "/PropChainStack/CloudFrontURL": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CloudFrontURL"
+          }
+        ],
+        "/PropChainStack/ECRRepository": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ECRRepository"
+          }
+        ],
+        "/PropChainStack/FrontendBucketName": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "FrontendBucketName"
+          }
+        ],
+        "/PropChainStack/SecretARN": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SecretARN"
+          }
+        ],
+        "/PropChainStack/CloudFrontDistributionId": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CloudFrontDistributionId"
+          }
+        ],
+        "/PropChainStack/ECSClusterName": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ECSClusterName"
+          }
+        ],
+        "/PropChainStack/CDKMetadata/Default": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CDKMetadata"
+          }
+        ],
+        "/PropChainStack/BootstrapVersion": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BootstrapVersion"
+          }
+        ],
+        "/PropChainStack/CheckBootstrapVersion": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "CheckBootstrapVersion"
+          }
+        ]
+      },
+      "displayName": "PropChainStack"
+    },
+    "Tree": {
+      "type": "cdk:tree",
+      "properties": {
+        "file": "tree.json"
+      }
+    }
+  }
+}

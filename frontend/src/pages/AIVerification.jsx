@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import API from '../utils/api'
 import toast from 'react-hot-toast'
 import {
   Shield, Upload, CheckCircle2, XCircle, AlertTriangle, Cpu,
   FileText, Link2, Clock, ChevronDown, ChevronUp, Hash, Info,
-  Building2, Zap, Eye
+  Building2, Zap, Eye, WifiOff
 } from 'lucide-react'
 
 const DOC_TYPES = [
@@ -93,7 +93,7 @@ function VerifyResult({ result, onReset }) {
           <div className="mt-4 p-3 rounded-xl bg-white/3 border border-white/5">
             <div className="flex items-center gap-2 mb-1.5">
               <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-xs font-semibold text-slate-300">Claude AI Assessment</span>
+              <span className="text-xs font-semibold text-slate-300">Nova Pro Assessment</span>
             </div>
             <p className="text-slate-400 text-xs leading-relaxed">{result.ai_explanation}</p>
           </div>
@@ -196,12 +196,17 @@ function VerifyResult({ result, onReset }) {
 }
 
 export default function AIVerification() {
-  const [docType, setDocType]     = useState('Title Deed')
+  const [docType, setDocType]       = useState('Title Deed')
   const [propertyId, setPropertyId] = useState('')
-  const [file, setFile]           = useState(null)
-  const [loading, setLoading]     = useState(false)
-  const [result, setResult]       = useState(null)
-  const [history, setHistory]     = useState([])
+  const [file, setFile]             = useState(null)
+  const [loading, setLoading]       = useState(false)
+  const [result, setResult]         = useState(null)
+  const [history, setHistory]       = useState([])
+  const [aiMode, setAiMode]         = useState(null)   // null | 'aws' | 'mock'
+
+  useEffect(() => {
+    API.get('/ai/mode').then(({ data }) => setAiMode(data.mode)).catch(() => {})
+  }, [])
 
   const onDrop = useCallback((accepted) => {
     if (accepted.length) { setFile(accepted[0]); setResult(null) }
@@ -238,20 +243,26 @@ export default function AIVerification() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-white">AI Document Verification</h1>
-          <p className="text-slate-400 mt-1">PropChain-FraudNet v2.1 — AWS Textract + Bedrock (Claude)</p>
+          <p className="text-slate-400 mt-1">PropChain-FraudNet v2.1 — AWS Bedrock (Amazon Nova Pro)</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-indigo-300 glass rounded-lg px-3 py-2 border border-indigo-500/20">
-          <Zap className="w-3.5 h-3.5" /> Mock mode — set AWS keys for real AI
-        </div>
+        {aiMode === 'aws' ? (
+          <div className="flex items-center gap-2 text-xs text-emerald-300 glass rounded-lg px-3 py-2 border border-emerald-500/20">
+            <Zap className="w-3.5 h-3.5" /> AWS Bedrock — Nova Pro active
+          </div>
+        ) : aiMode === 'mock' ? (
+          <div className="flex items-center gap-2 text-xs text-amber-300 glass rounded-lg px-3 py-2 border border-amber-500/20">
+            <WifiOff className="w-3.5 h-3.5" /> Mock mode — set AWS keys for real AI
+          </div>
+        ) : null}
       </div>
 
       {/* Steps */}
       <div className="grid sm:grid-cols-4 gap-3">
         {[
-          { step: '01', icon: Upload,   label: 'Upload Document',      desc: 'Upload sale deed, Aadhaar, or any property doc', color: 'text-blue-400 bg-blue-500/10'     },
-          { step: '02', icon: FileText, label: 'Textract Extraction',   desc: 'AWS Textract extracts all key-value fields',     color: 'text-violet-400 bg-violet-500/10' },
-          { step: '03', icon: Cpu,      label: 'AI Fraud Analysis',    desc: 'Claude (Bedrock) checks for fraud patterns',     color: 'text-purple-400 bg-purple-500/10' },
-          { step: '04', icon: Link2,    label: 'Blockchain Record',     desc: 'Result is immutably logged on-chain',            color: 'text-emerald-400 bg-emerald-500/10' },
+          { step: '01', icon: Upload,   label: 'Upload Document',    desc: 'Upload sale deed, Aadhaar, or any property doc',  color: 'text-blue-400 bg-blue-500/10'      },
+          { step: '02', icon: FileText, label: 'Nova Pro Vision',    desc: 'Bedrock reads the document directly as images',   color: 'text-violet-400 bg-violet-500/10'  },
+          { step: '03', icon: Cpu,      label: 'AI Fraud Analysis',  desc: 'Nova Pro extracts fields and checks for fraud',   color: 'text-purple-400 bg-purple-500/10'  },
+          { step: '04', icon: Link2,    label: 'Blockchain Record',  desc: 'Result is immutably logged on-chain',             color: 'text-emerald-400 bg-emerald-500/10' },
         ].map(({ step, icon: Icon, label, desc, color }) => (
           <div key={step} className="glass-card text-center py-4 px-3">
             <div className={`w-9 h-9 rounded-xl ${color} flex items-center justify-center mx-auto mb-2`}>
@@ -379,7 +390,7 @@ export default function AIVerification() {
                 Upload a document and click "Verify" to run full AI fraud analysis
               </p>
               <div className="mt-6 flex flex-wrap gap-2 justify-center">
-                {['Textract Field Extraction', 'Date Validation', 'Forgery Detection', 'Name Consistency', 'Blockchain Logging'].map(f => (
+                {['Nova Pro Field Extraction', 'Date Validation', 'Forgery Detection', 'Name Consistency', 'Blockchain Logging'].map(f => (
                   <span key={f} className="text-xs text-indigo-300 bg-indigo-600/10 border border-indigo-500/20 px-2.5 py-1 rounded-full">{f}</span>
                 ))}
               </div>
@@ -398,7 +409,7 @@ export default function AIVerification() {
               <h3 className="text-white font-bold text-lg mb-2">AI Analysis in Progress</h3>
               <p className="text-slate-400 text-sm mb-6">PropChain-FraudNet v2.1 is scanning your document...</p>
               <div className="space-y-2 text-left w-72">
-                {['Computing document hash...', 'Running Textract extraction...', 'Applying fraud rules...', 'Claude AI analysis...', 'Logging result on-chain...'].map((s, i) => (
+                {['Computing document hash...', 'Sending to Nova Pro (Bedrock)...', 'Extracting document fields...', 'Applying fraud detection rules...', 'Logging result on-chain...'].map((s, i) => (
                   <div key={i} className="flex items-center gap-2.5 text-xs">
                     <div className="w-3 h-3 border border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ animationDelay: `${i * 120}ms` }} />
                     <span className="text-slate-400">{s}</span>

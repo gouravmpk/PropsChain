@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, Building2, PlusCircle, ShoppingBag,
   ShieldCheck, Link2, ArrowLeftRight, LogOut, Menu, X,
-  ChevronRight, Wallet, Bell, User, Boxes
+  ChevronRight, Wallet, Bell, User, Boxes, GitCompare
 } from 'lucide-react'
 import { fmt } from '../utils/api'
 
@@ -14,6 +14,7 @@ const navItems = [
   { to: '/app/register-property',  label: 'Register Property', icon: PlusCircle },
   { to: '/app/marketplace',        label: 'Marketplace',     icon: ShoppingBag },
   { to: '/app/ai-verify',          label: 'AI Verification', icon: ShieldCheck },
+  { to: '/app/cross-verify',       label: 'Cross-Doc Check', icon: GitCompare },
   { to: '/app/blockchain',         label: 'Blockchain',      icon: Link2 },
   { to: '/app/transactions',       label: 'Transactions',    icon: ArrowLeftRight },
 ]

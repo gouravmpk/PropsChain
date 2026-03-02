@@ -1,9 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 from enum import Enum
+import json
 
 from models.ai_verify import DocumentType
-from services.ai_service import verify_document, USE_AWS, BEDROCK_MODEL
+from services.ai_service import verify_document, cross_verify_documents, USE_AWS, BEDROCK_MODEL
 from services.blockchain_service import add_transaction
 from models.blockchain import TransactionType
 
@@ -162,7 +163,7 @@ async def verify_property_document(
     result["fraud_indicators"] = result.get("flags", [])
     result["filename"] = result["file_name"]
     result["size_kb"] = result["file_size_kb"]
-    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Bedrock Claude Vision)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
+    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Bedrock Nova Pro)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
 
     return result
 
@@ -188,6 +189,105 @@ def _build_checks(rule_checks: list) -> list:
     ]
 
 
+@router.post(
+    "/cross-verify",
+    summary="Cross-document consistency check",
+    description="""
+Upload **2–5 property documents** at once. Claude reads all of them in a single AI call and checks:
+- Owner / party name consistency across all docs
+- Survey / plot number matches
+- Date logic (registration before transfer, possession dates)
+- Financial amount consistency (sale deed vs agreement)
+- Address / locality matches
+
+Returns a **consistency score** (0–100), list of inconsistencies with severity (HIGH/MEDIUM/LOW), and an overall verdict.
+
+**`document_types`** — JSON array mapping filenames to document types, e.g.:
+```json
+[
+  {"file_name": "deed.pdf", "document_type": "Title Deed"},
+  {"file_name": "aadhaar.jpg", "document_type": "Aadhaar Card"}
+]
+```
+""",
+    tags=["AI Document Verification"],
+)
+async def cross_verify_property_documents(
+    files: list[UploadFile] = File(..., description="2–5 property documents (PDF or image)"),
+    document_types: str = Form(
+        ...,
+        description='JSON array: [{"file_name": "deed.pdf", "document_type": "Title Deed"}, ...]',
+    ),
+    property_id: str = Form(default="", description="Property ID for optional on-chain logging"),
+    auto_log_on_chain: bool = Form(default=True),
+):
+    # ── Validate count ─────────────────────────────────────────────────────────
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 documents are required for cross-verification")
+    if len(files) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 documents allowed per cross-verification")
+
+    # ── Parse document_types mapping ──────────────────────────────────────────
+    try:
+        type_map: list[dict] = json.loads(document_types)
+    except Exception:
+        raise HTTPException(status_code=400, detail="document_types must be a valid JSON array")
+
+    name_to_type = {item["file_name"]: item["document_type"] for item in type_map}
+
+    # ── Read and validate each file ───────────────────────────────────────────
+    docs: list[dict] = []
+    for f in files:
+        if f.content_type not in ALLOWED_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{f.content_type}' for '{f.filename}'. Allowed: PDF, JPEG, PNG, TIFF",
+            )
+        file_bytes = await f.read()
+        if len(file_bytes) == 0:
+            raise HTTPException(status_code=400, detail=f"File '{f.filename}' is empty")
+        if len(file_bytes) > MAX_SIZE_MB * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{f.filename}' is too large ({len(file_bytes)/1024/1024:.1f} MB). Max: {MAX_SIZE_MB} MB",
+            )
+        doc_type = name_to_type.get(f.filename or "", "Title Deed")
+        docs.append({
+            "file_bytes": file_bytes,
+            "file_name": f.filename or "unknown",
+            "document_type": doc_type,
+        })
+
+    # ── Run cross-document AI check ───────────────────────────────────────────
+    result = await cross_verify_documents(docs)
+
+    # ── Optionally log on-chain ───────────────────────────────────────────────
+    if auto_log_on_chain and property_id and property_id.strip():
+        on_chain_data = {
+            "check_type": "CROSS_DOCUMENT_CONSISTENCY",
+            "documents": [{"type": d["document_type"], "file": d["file_name"]} for d in docs],
+            "overall_verdict": result["overall_verdict"],
+            "consistency_score": result["consistency_score"],
+            "inconsistencies_count": len(result["inconsistencies"]),
+        }
+        try:
+            block = await add_transaction(
+                property_id=property_id.strip(),
+                transaction_type=TransactionType.DOCUMENT_VERIFICATION,
+                data=on_chain_data,
+            )
+            result["logged_on_chain"] = True
+            result["block_hash"] = block["hash"]
+        except Exception:
+            result["logged_on_chain"] = False
+            result["block_hash"] = None
+    else:
+        result["logged_on_chain"] = False
+        result["block_hash"] = None
+
+    return result
+
+
 @router.get(
     "/mode",
     summary="Check AI verification mode",
@@ -200,7 +300,7 @@ async def get_ai_mode():
         "bedrock": USE_AWS,
         "model": BEDROCK_MODEL if USE_AWS else "mock",
         "message": (
-            "Using AWS Bedrock (Claude vision) — direct document read + fraud analysis in one call"
+            f"Using AWS Bedrock ({BEDROCK_MODEL}) — Nova Pro reads documents directly as images + fraud analysis in one call"
             if USE_AWS
             else "Running in mock mode — set AWS_ACCESS_KEY_ID in .env to enable real AI"
         ),

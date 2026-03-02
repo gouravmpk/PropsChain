@@ -1,0 +1,887 @@
+{
+ "Description": "PropChain — Blockchain & AI Property Platform (AI for Bharat Hackathon)",
+ "Resources": {
+  "BackendRepo7FFBAD06": {
+   "Type": "AWS::ECR::Repository",
+   "Properties": {
+    "ImageScanningConfiguration": {
+     "ScanOnPush": true
+    },
+    "LifecyclePolicy": {
+     "LifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Keep last 5 images\",\"selection\":{\"tagStatus\":\"any\",\"countType\":\"imageCountMoreThan\",\"countNumber\":5},\"action\":{\"type\":\"expire\"}}]}"
+    },
+    "RepositoryName": "propchain-backend"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/BackendRepo/Resource"
+   }
+  },
+  "PropChainSecrets78F40E4D": {
+   "Type": "AWS::SecretsManager::Secret",
+   "Properties": {
+    "Description": "PropChain app secrets",
+    "GenerateSecretString": {
+     "GenerateStringKey": "_placeholder",
+     "SecretStringTemplate": "{\"MONGODB_URL\":\"FILL_ME\",\"JWT_SECRET\":\"FILL_ME\",\"AWS_ACCESS_KEY_ID\":\"FILL_ME\",\"AWS_SECRET_ACCESS_KEY\":\"FILL_ME\"}"
+    },
+    "Name": "propchain/config"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainSecrets/Resource"
+   }
+  },
+  "PropChainExecutionRole63F61FD5": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainExecutionRole/Resource"
+   }
+  },
+  "PropChainExecutionRoleDefaultPolicyE6DB357E": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "BackendRepo7FFBAD06",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "ecr:GetAuthorizationToken",
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Ref": "PropChainSecrets78F40E4D"
+       }
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PropChainTaskDefBackendContainerLogGroup30303663",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "PropChainExecutionRoleDefaultPolicyE6DB357E",
+    "Roles": [
+     {
+      "Ref": "PropChainExecutionRole63F61FD5"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainExecutionRole/DefaultPolicy/Resource"
+   }
+  },
+  "PropChainTaskRole7360BCF1": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "Runtime role for PropChain Fargate tasks - grants Bedrock access"
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainTaskRole/Resource"
+   }
+  },
+  "PropChainTaskRoleDefaultPolicyDFC16D14": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:Converse"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:bedrock:ap-south-1::foundation-model/apac.amazon.nova-pro-v1:0",
+        "arn:aws:bedrock:ap-south-1::foundation-model/amazon.nova-pro-v1:0"
+       ],
+       "Sid": "AllowBedrockNovaPro"
+      },
+      {
+       "Action": "secretsmanager:GetSecretValue",
+       "Effect": "Allow",
+       "Resource": {
+        "Ref": "PropChainSecrets78F40E4D"
+       },
+       "Sid": "AllowReadSecrets"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "PropChainTaskRoleDefaultPolicyDFC16D14",
+    "Roles": [
+     {
+      "Ref": "PropChainTaskRole7360BCF1"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainTaskRole/DefaultPolicy/Resource"
+   }
+  },
+  "PropChainCluster971320D8": {
+   "Type": "AWS::ECS::Cluster",
+   "Properties": {
+    "ClusterName": "propchain"
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainCluster/Resource"
+   }
+  },
+  "PropChainTaskDef13CA9FF0": {
+   "Type": "AWS::ECS::TaskDefinition",
+   "Properties": {
+    "ContainerDefinitions": [
+     {
+      "Environment": [
+       {
+        "Name": "BEDROCK_REGION",
+        "Value": "ap-south-1"
+       },
+       {
+        "Name": "BEDROCK_MODEL",
+        "Value": "apac.amazon.nova-pro-v1:0"
+       },
+       {
+        "Name": "ENVIRONMENT",
+        "Value": "production"
+       }
+      ],
+      "Essential": true,
+      "HealthCheck": {
+       "Command": [
+        "CMD-SHELL",
+        "curl -f http://localhost:8000/health || exit 1"
+       ],
+       "Interval": 30,
+       "Retries": 3,
+       "StartPeriod": 60,
+       "Timeout": 5
+      },
+      "Image": {
+       "Fn::Join": [
+        "",
+        [
+         {
+          "Fn::Select": [
+           4,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::GetAtt": [
+               "BackendRepo7FFBAD06",
+               "Arn"
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         ".dkr.ecr.",
+         {
+          "Fn::Select": [
+           3,
+           {
+            "Fn::Split": [
+             ":",
+             {
+              "Fn::GetAtt": [
+               "BackendRepo7FFBAD06",
+               "Arn"
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         ".",
+         {
+          "Ref": "AWS::URLSuffix"
+         },
+         "/",
+         {
+          "Ref": "BackendRepo7FFBAD06"
+         },
+         ":latest"
+        ]
+       ]
+      },
+      "LogConfiguration": {
+       "LogDriver": "awslogs",
+       "Options": {
+        "awslogs-group": {
+         "Ref": "PropChainTaskDefBackendContainerLogGroup30303663"
+        },
+        "awslogs-stream-prefix": "propchain",
+        "awslogs-region": "ap-south-1"
+       }
+      },
+      "Name": "BackendContainer",
+      "PortMappings": [
+       {
+        "ContainerPort": 8000,
+        "Protocol": "tcp"
+       }
+      ],
+      "Secrets": [
+       {
+        "Name": "MONGODB_URL",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Ref": "PropChainSecrets78F40E4D"
+           },
+           ":MONGODB_URL::"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "JWT_SECRET",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Ref": "PropChainSecrets78F40E4D"
+           },
+           ":JWT_SECRET::"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "AWS_ACCESS_KEY_ID",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Ref": "PropChainSecrets78F40E4D"
+           },
+           ":AWS_ACCESS_KEY_ID::"
+          ]
+         ]
+        }
+       },
+       {
+        "Name": "AWS_SECRET_ACCESS_KEY",
+        "ValueFrom": {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Ref": "PropChainSecrets78F40E4D"
+           },
+           ":AWS_SECRET_ACCESS_KEY::"
+          ]
+         ]
+        }
+       }
+      ]
+     }
+    ],
+    "Cpu": "512",
+    "ExecutionRoleArn": {
+     "Fn::GetAtt": [
+      "PropChainExecutionRole63F61FD5",
+      "Arn"
+     ]
+    },
+    "Family": "PropChainStackPropChainTaskDef32D4998A",
+    "Memory": "1024",
+    "NetworkMode": "awsvpc",
+    "RequiresCompatibilities": [
+     "FARGATE"
+    ],
+    "TaskRoleArn": {
+     "Fn::GetAtt": [
+      "PropChainTaskRole7360BCF1",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainTaskDef/Resource"
+   }
+  },
+  "PropChainTaskDefBackendContainerLogGroup30303663": {
+   "Type": "AWS::Logs::LogGroup",
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainTaskDef/BackendContainer/LogGroup/Resource"
+   }
+  },
+  "PropChainSG53E41682": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "PropChain Fargate task - allow port 8000",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "SecurityGroupIngress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "FastAPI",
+      "FromPort": 8000,
+      "IpProtocol": "tcp",
+      "ToPort": 8000
+     }
+    ],
+    "VpcId": "vpc-0ceca9daecf228133"
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainSG/Resource"
+   }
+  },
+  "PropChainService53A32AEF": {
+   "Type": "AWS::ECS::Service",
+   "Properties": {
+    "Cluster": {
+     "Ref": "PropChainCluster971320D8"
+    },
+    "DeploymentConfiguration": {
+     "Alarms": {
+      "AlarmNames": [],
+      "Enable": false,
+      "Rollback": false
+     },
+     "MaximumPercent": 200,
+     "MinimumHealthyPercent": 0
+    },
+    "DesiredCount": 0,
+    "EnableECSManagedTags": false,
+    "LaunchType": "FARGATE",
+    "NetworkConfiguration": {
+     "AwsvpcConfiguration": {
+      "AssignPublicIp": "ENABLED",
+      "SecurityGroups": [
+       {
+        "Fn::GetAtt": [
+         "PropChainSG53E41682",
+         "GroupId"
+        ]
+       }
+      ],
+      "Subnets": [
+       "subnet-0b1ddcb9868361410",
+       "subnet-00266d74b4cb10c66",
+       "subnet-0012ccf6237396fcd"
+      ]
+     }
+    },
+    "TaskDefinition": {
+     "Ref": "PropChainTaskDef13CA9FF0"
+    }
+   },
+   "DependsOn": [
+    "PropChainTaskRoleDefaultPolicyDFC16D14",
+    "PropChainTaskRole7360BCF1"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainService/Service"
+   }
+  },
+  "FrontendBucketEFE2E19C": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "BucketName": "propchain-frontend-264982087490",
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    },
+    "Tags": [
+     {
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/FrontendBucket/Resource"
+   }
+  },
+  "FrontendBucketPolicy1DFF75D9": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "FrontendBucketEFE2E19C"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutBucketPolicy",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "FrontendBucketEFE2E19C",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "FrontendBucketEFE2E19C",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": "s3:GetObject",
+       "Condition": {
+        "StringEquals": {
+         "AWS:SourceArn": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:",
+            {
+             "Ref": "AWS::Partition"
+            },
+            ":cloudfront::",
+            {
+             "Ref": "AWS::AccountId"
+            },
+            ":distribution/",
+            {
+             "Ref": "PropChainCDN6475E43B"
+            }
+           ]
+          ]
+         }
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "cloudfront.amazonaws.com"
+       },
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          {
+           "Fn::GetAtt": [
+            "FrontendBucketEFE2E19C",
+            "Arn"
+           ]
+          },
+          "/*"
+         ]
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/FrontendBucket/Policy/Resource"
+   }
+  },
+  "FrontendBucketAutoDeleteObjectsCustomResourceDB860B32": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "FrontendBucketEFE2E19C"
+    }
+   },
+   "DependsOn": [
+    "FrontendBucketPolicy1DFF75D9"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/FrontendBucket/AutoDeleteObjectsCustomResource/Default"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-264982087490-ap-south-1",
+     "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "FrontendBucketEFE2E19C"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
+   },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+    "aws:asset:property": "Code"
+   }
+  },
+  "PropChainCDNOrigin1S3OriginAccessControl5729FCCD": {
+   "Type": "AWS::CloudFront::OriginAccessControl",
+   "Properties": {
+    "OriginAccessControlConfig": {
+     "Name": "PropChainStackPropChainCDNOrigin1S3OriginAccessControlED1F90EE",
+     "OriginAccessControlOriginType": "s3",
+     "SigningBehavior": "always",
+     "SigningProtocol": "sigv4"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainCDN/Origin1/S3OriginAccessControl/Resource"
+   }
+  },
+  "PropChainCDN6475E43B": {
+   "Type": "AWS::CloudFront::Distribution",
+   "Properties": {
+    "DistributionConfig": {
+     "Comment": "PropChain - React frontend CDN",
+     "CustomErrorResponses": [
+      {
+       "ErrorCachingMinTTL": 0,
+       "ErrorCode": 403,
+       "ResponseCode": 200,
+       "ResponsePagePath": "/index.html"
+      },
+      {
+       "ErrorCachingMinTTL": 0,
+       "ErrorCode": 404,
+       "ResponseCode": 200,
+       "ResponsePagePath": "/index.html"
+      }
+     ],
+     "DefaultCacheBehavior": {
+      "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+      "Compress": true,
+      "TargetOriginId": "PropChainStackPropChainCDNOrigin1F2C46C07",
+      "ViewerProtocolPolicy": "redirect-to-https"
+     },
+     "Enabled": true,
+     "HttpVersion": "http2",
+     "IPV6Enabled": true,
+     "Origins": [
+      {
+       "DomainName": {
+        "Fn::GetAtt": [
+         "FrontendBucketEFE2E19C",
+         "RegionalDomainName"
+        ]
+       },
+       "Id": "PropChainStackPropChainCDNOrigin1F2C46C07",
+       "OriginAccessControlId": {
+        "Fn::GetAtt": [
+         "PropChainCDNOrigin1S3OriginAccessControl5729FCCD",
+         "Id"
+        ]
+       },
+       "S3OriginConfig": {
+        "OriginAccessIdentity": ""
+       }
+      }
+     ],
+     "PriceClass": "PriceClass_All"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/PropChainCDN/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3VRTW/CMAz9LdxDBnTSznxou0waortPIZjOaxsjO2FCVf77khYGm7aT33u2Y794pqcPEz0ZmU8Z2109bnCru9IbW6skvXVgWXcbOJCgJz6p5d5dWVSS8uClNc5UkCrLnueqAUWFpk0PUAN9a45ratD2Lw0oKrCiu2UTxANn/QIfDVfGw6uRegV7dOiRXC74rZDzBh3wjXbuLYGPaGHYqIdRNVSlec9UPTGFQ05dcF5l1rsIjP70nf8hJNeF7hbB1oPTMxrC1dwtj8o2FHZ7TovqboXiGbeh37MsXhgrdHNrQSQ7YWpy/z/ybXOMagNCgbPB9GXUXmm+05+pNdMRd8ALI6DmIuDTudOkqh8a/CGkq61P/p3cXaGn97oYfQjimIPz2ILeDPELoprdQDkCAAA="
+   },
+   "Metadata": {
+    "aws:cdk:path": "PropChainStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "CloudFrontURL": {
+   "Description": "Frontend URL",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Fn::GetAtt": [
+        "PropChainCDN6475E43B",
+        "DomainName"
+       ]
+      }
+     ]
+    ]
+   }
+  },
+  "ECRRepository": {
+   "Description": "ECR repo - push Docker image here",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      {
+       "Fn::Select": [
+        4,
+        {
+         "Fn::Split": [
+          ":",
+          {
+           "Fn::GetAtt": [
+            "BackendRepo7FFBAD06",
+            "Arn"
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      ".dkr.ecr.",
+      {
+       "Fn::Select": [
+        3,
+        {
+         "Fn::Split": [
+          ":",
+          {
+           "Fn::GetAtt": [
+            "BackendRepo7FFBAD06",
+            "Arn"
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      ".",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "BackendRepo7FFBAD06"
+      }
+     ]
+    ]
+   }
+  },
+  "FrontendBucketName": {
+   "Description": "S3 bucket - sync React build here",
+   "Value": {
+    "Ref": "FrontendBucketEFE2E19C"
+   }
+  },
+  "SecretARN": {
+   "Description": "Fill in secrets here after deploy",
+   "Value": {
+    "Ref": "PropChainSecrets78F40E4D"
+   }
+  },
+  "CloudFrontDistributionId": {
+   "Description": "CloudFront ID - for cache invalidation",
+   "Value": {
+    "Ref": "PropChainCDN6475E43B"
+   }
+  },
+  "ECSClusterName": {
+   "Description": "ECS cluster name - for deploy script",
+   "Value": {
+    "Ref": "PropChainCluster971320D8"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

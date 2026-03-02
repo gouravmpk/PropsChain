@@ -395,9 +395,9 @@ async def verify_document(
             import logging
             logging.error(f"Bedrock call failed: {bedrock_err}")
             raise
-    # else:
-    #     extracted_fields = _mock_extract(document_type, is_suspicious_mock)
-    #     ai_result = _mock_bedrock_result(is_suspicious_mock, document_type, extracted_fields)
+    else:
+        extracted_fields = _mock_extract(document_type, is_suspicious_mock)
+        ai_result = _mock_bedrock_result(is_suspicious_mock, document_type, extracted_fields)
 
     raw_text = "\n".join(f"{f['key']}: {f['value']}" for f in extracted_fields)
 
@@ -445,7 +445,253 @@ async def verify_document(
         "flags": all_flags,
         "rule_checks": [r.model_dump() for r in rule_results],
         "ai_explanation": ai_result.get("explanation", ""),
-        "verified_by": "PropChain-Claude-Bedrock" if mode == "aws" else "PropChain-AI-Mock",
+        "verified_by": f"Amazon Nova Pro ({BEDROCK_MODEL}) · AWS Bedrock · {BEDROCK_REGION}" if mode == "aws" else "PropChain-AI-Mock (no AWS credentials)",
+        "mode": mode,
+        "processing_time_ms": elapsed_ms,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cross-document consistency check
+# ---------------------------------------------------------------------------
+
+def _cross_doc_analyze(docs: list[dict]) -> dict:
+    """
+    Send multiple documents to Bedrock (Nova) in a single converse() call.
+    Each doc dict: {"file_bytes": bytes, "file_name": str, "document_type": str}
+    Returns structured cross-check JSON.
+    """
+    import fitz  # PyMuPDF
+    import io as _io
+    from PIL import Image as _Image
+
+    NOVA_MAX_IMAGES = 20
+
+    def _pil_to_jpeg(img: "_Image.Image") -> bytes:
+        buf = _io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+
+    def _pdf_to_images(raw: bytes) -> list[bytes]:
+        doc = fitz.open(stream=raw, filetype="pdf")
+        pages = []
+        for page in doc:
+            pix = page.get_pixmap(dpi=150)
+            img = _Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            pages.append(_pil_to_jpeg(img))
+        doc.close()
+        return pages
+
+    def _file_to_images(file_bytes: bytes, file_name: str) -> list[bytes]:
+        media = _media_type(file_name)
+        fmt = media.split("/")[-1]
+        if fmt == "pdf":
+            return _pdf_to_images(file_bytes)
+        else:
+            img = _Image.open(_io.BytesIO(file_bytes))
+            return [_pil_to_jpeg(img)]
+
+    def _stitch(pages: list[bytes]) -> list[bytes]:
+        while len(pages) > NOVA_MAX_IMAGES:
+            stitched = []
+            for i in range(0, len(pages), 2):
+                if i + 1 < len(pages):
+                    a = _Image.open(_io.BytesIO(pages[i]))
+                    b = _Image.open(_io.BytesIO(pages[i + 1]))
+                    w = max(a.width, b.width)
+                    combined = _Image.new("RGB", (w, a.height + b.height), (255, 255, 255))
+                    combined.paste(a, (0, 0))
+                    combined.paste(b, (0, a.height))
+                    stitched.append(_pil_to_jpeg(combined))
+                else:
+                    stitched.append(pages[i])
+            pages = stitched
+        return pages
+
+    # Build doc list header for the prompt
+    doc_labels = "\n".join(
+        f"- Document {i+1}: {d['document_type']} (file: {d['file_name']})"
+        for i, d in enumerate(docs)
+    )
+
+    prompt = f"""You are an expert Indian property document fraud analyst.
+
+You have been given {len(docs)} property documents:
+{doc_labels}
+
+The documents are provided as images in order above — each group of images belongs to one document in sequence.
+
+Your task:
+1. For EACH document, extract all key fields visible (owner name, survey/plot number, registration date, consideration amount, address, Aadhaar/PAN number, parties involved).
+2. Cross-check the following fields ACROSS all documents:
+   - Owner / party names (must be consistent across all docs)
+   - Survey / plot / property numbers (must match)
+   - Property address / locality
+   - Dates (registration before transfer, possession dates logical)
+   - Financial amounts (sale consideration must match between sale deed and agreement)
+3. List EVERY inconsistency found with severity: HIGH (clear fraud signal), MEDIUM (suspicious), LOW (minor variation).
+4. Give an overall verdict: CONSISTENT (no issues), INCONSISTENT (clear mismatches), or SUSPICIOUS (possible issues).
+5. Give a consistency_score from 0 (totally inconsistent) to 100 (fully consistent).
+
+Respond ONLY with valid JSON in this exact format:
+{{
+  "per_doc": [
+    {{
+      "document": "Title Deed",
+      "extracted": [
+        {{"key": "Owner Name", "value": "Ravi Kumar", "confidence": 0.97}}
+      ]
+    }}
+  ],
+  "inconsistencies": [
+    {{
+      "field": "Owner Name",
+      "documents": ["Title Deed", "Aadhaar Card"],
+      "values": {{"Title Deed": "Ravi Kumar", "Aadhaar Card": "R. Kumar"}},
+      "description": "Owner name abbreviated differently — possible mismatch",
+      "severity": "MEDIUM"
+    }}
+  ],
+  "overall_verdict": "INCONSISTENT",
+  "consistency_score": 62,
+  "summary": "One sentence assessment of the document set."
+}}"""
+
+    # Assemble content: all doc images interleaved with labels, then prompt
+    # Budget: NOVA_MAX_IMAGES total images across ALL docs
+    all_images: list[bytes] = []
+    per_doc_counts: list[int] = []
+    for d in docs:
+        pages = _stitch(_file_to_images(d["file_bytes"], d["file_name"]))
+        all_images.extend(pages)
+        per_doc_counts.append(len(pages))
+
+    # If total images still exceeds limit, stitch across all
+    all_images = _stitch(all_images)
+
+    content: list[dict] = []
+    img_idx = 0
+    for i, d in enumerate(docs):
+        content.append({"text": f"=== Document {i+1}: {d['document_type']} ==="})
+        count = per_doc_counts[i] if img_idx + per_doc_counts[i] <= len(all_images) else len(all_images) - img_idx
+        for _ in range(count):
+            if img_idx < len(all_images):
+                content.append({"image": {"format": "jpeg", "source": {"bytes": all_images[img_idx]}}})
+                img_idx += 1
+    content.append({"text": prompt})
+
+    response = _bedrock.converse(
+        modelId=BEDROCK_MODEL,
+        messages=[{"role": "user", "content": content}],
+        inferenceConfig={"maxTokens": 4096},
+    )
+    raw = response["output"]["message"]["content"][0]["text"]
+    json_str = raw[raw.find("{"):raw.rfind("}") + 1]
+    return json.loads(json_str)
+
+
+def _mock_cross_verify(docs: list[dict]) -> dict:
+    """Deterministic mock result for cross-document verification."""
+    n = len(docs)
+    # Mix of consistent and inconsistent based on doc count parity
+    if n >= 3:
+        return {
+            "per_doc": [
+                {
+                    "document": d["document_type"],
+                    "extracted": [
+                        {"key": "Owner Name", "value": "Ravi Kumar" if i == 0 else "R. Kumar", "confidence": 0.96},
+                        {"key": "Survey Number", "value": "123/4A", "confidence": 0.94},
+                        {"key": "Registration Date", "value": "15/01/2024" if i < 2 else "20/03/2024", "confidence": 0.97},
+                    ],
+                }
+                for i, d in enumerate(docs)
+            ],
+            "inconsistencies": [
+                {
+                    "field": "Owner Name",
+                    "documents": [docs[0]["document_type"], docs[1]["document_type"]],
+                    "values": {docs[0]["document_type"]: "Ravi Kumar", docs[1]["document_type"]: "R. Kumar"},
+                    "description": "Owner name is abbreviated in the second document — possible mismatch or clerical error",
+                    "severity": "MEDIUM",
+                },
+            ],
+            "overall_verdict": "SUSPICIOUS",
+            "consistency_score": 71,
+            "summary": f"Cross-check of {n} documents shows a name inconsistency that warrants manual review.",
+        }
+    else:
+        return {
+            "per_doc": [
+                {
+                    "document": d["document_type"],
+                    "extracted": [
+                        {"key": "Owner Name", "value": "Ravi Kumar", "confidence": 0.97},
+                        {"key": "Survey Number", "value": "123/4A", "confidence": 0.95},
+                        {"key": "Registration Date", "value": "15/01/2024", "confidence": 0.98},
+                    ],
+                }
+                for d in docs
+            ],
+            "inconsistencies": [],
+            "overall_verdict": "CONSISTENT",
+            "consistency_score": 94,
+            "summary": f"Both documents are consistent — owner name, survey number, and dates all match.",
+        }
+
+
+async def cross_verify_documents(docs: list[dict]) -> dict:
+    """
+    Cross-document consistency check.
+    docs: list of {"file_bytes": bytes, "file_name": str, "document_type": str}
+    Returns structured result matching CrossVerifyResponse fields.
+    """
+    start = time.time()
+    mode = "aws" if USE_AWS else "mock"
+
+    if USE_AWS:
+        try:
+            ai_result = _cross_doc_analyze(docs)
+        except Exception as err:
+            import logging
+            logging.error(f"Bedrock cross-verify failed: {err}")
+            raise
+    else:
+        ai_result = _mock_cross_verify(docs)
+
+    # Normalise per_doc to our schema
+    per_doc_results = []
+    for item in ai_result.get("per_doc", []):
+        per_doc_results.append({
+            "document_type": item.get("document", ""),
+            "file_name": next(
+                (d["file_name"] for d in docs if d["document_type"] == item.get("document")),
+                "",
+            ),
+            "extracted": item.get("extracted", []),
+        })
+
+    # Normalise inconsistencies
+    inconsistencies = []
+    for inc in ai_result.get("inconsistencies", []):
+        inconsistencies.append({
+            "field": inc.get("field", ""),
+            "documents_involved": inc.get("documents", []),
+            "values": inc.get("values", {}),
+            "description": inc.get("description", ""),
+            "severity": inc.get("severity", "LOW"),
+        })
+
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    return {
+        "overall_verdict": ai_result.get("overall_verdict", "SUSPICIOUS"),
+        "consistency_score": int(ai_result.get("consistency_score", 50)),
+        "documents_analyzed": len(docs),
+        "per_doc_results": per_doc_results,
+        "inconsistencies": inconsistencies,
+        "ai_summary": ai_result.get("summary", ""),
+        "verified_by": f"Amazon Nova Pro ({BEDROCK_MODEL}) · AWS Bedrock · {BEDROCK_REGION}" if mode == "aws" else "PropChain-AI-Mock (no AWS credentials)",
         "mode": mode,
         "processing_time_ms": elapsed_ms,
     }

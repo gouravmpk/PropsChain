@@ -48,6 +48,8 @@ setup() {
   $VENV_DIR/bin/pip install -r requirements.txt -q
   echo -e "${GREEN}  ✅ Dependencies installed${NC}"
 
+
+                                                                                                                                                                                                                                                  
   echo ""
   if [ ! -f ".env" ]; then
     cp .env.example .env
