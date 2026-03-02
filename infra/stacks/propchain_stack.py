@@ -29,6 +29,7 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_ssm as ssm,
     aws_apigateway as apigw,
+    aws_elasticloadbalancingv2 as elbv2,
 )
 from constructs import Construct
 
@@ -190,6 +191,38 @@ class PropChainStack(Stack):
             min_healthy_percent=0,
         )
 
+        # Network Load Balancer — provides stable DNS for Fargate tasks
+        # API Gateway will point to this NLB instead of hardcoding task IP
+        nlb = elbv2.NetworkLoadBalancer(
+            self,
+            "PropChainNLB",
+            vpc=default_vpc,
+            internet_facing=False,  # internal only, accessed by API Gateway
+            load_balancer_name="propchain-nlb",
+        )
+
+        # Target group for Fargate service
+        target_group = elbv2.NetworkTargetGroup(
+            self,
+            "PropChainTargetGroup",
+            vpc=default_vpc,
+            port=8000,
+            protocol=elbv2.Protocol.TCP,
+            deregistration_delay=Duration.seconds(30),
+            target_type=elbv2.TargetType.IP,
+        )
+
+        # Route NLB traffic to target group
+        nlb.add_listener(
+            "PropChainListener",
+            port=8000,
+            protocol=elbv2.Protocol.TCP,
+            default_target_groups=[target_group],
+        )
+
+        # Register Fargate service with NLB
+        fargate_service.attach_to_network_target_group(target_group)
+
         # ──────────────────────────────────────────────────────────────────────
         # 6. S3 Bucket — React frontend static files
         # ──────────────────────────────────────────────────────────────────────
@@ -258,10 +291,11 @@ class PropChainStack(Stack):
         # Create /api resource and proxy all requests to it
         api_resource = api.root.add_resource("api")
         
-        # HTTP integration to Fargate backend
-        # Backend runs on https://172.31.0.34:8000 with self-signed cert
+        # HTTP integration to Fargate backend via NLB
+        # NLB provides stable DNS — IP changes won't break API Gateway!
+        # NLB DNS: propchain-nlb-xxxxx.elb.ap-south-1.amazonaws.com
         backend_integration = apigw.HttpIntegration(
-            url="https://172.31.0.34:8000/"
+            url=f"https://{nlb.load_balancer_dns_name}:8000/"
         )
 
         # Add proxy resource: /api/{proxy+} routes all to backend
