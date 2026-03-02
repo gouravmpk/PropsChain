@@ -37,5 +37,5 @@ USER appuser
 
 EXPOSE 8000
 
-# uvicorn: bind to all interfaces (0.0.0.0) so the ALB can reach the container
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# uvicorn: bind to all interfaces (0.0.0.0) with HTTPS support
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--ssl-certfile", "/app/server.crt", "--ssl-keyfile", "/app/server.key"]
