@@ -206,7 +206,7 @@ class PropChainStack(Stack):
         # Create origin for Fargate backend (will be set post-deploy)
         # For now, use placeholder - deploy script will update with real Fargate IP
         backend_origin = origins.HttpOrigin(
-            "placeholder-ip",  # Will be updated by deploy script
+            "placeholder.example.com",  # Valid placeholder - deploy script updates this
             protocol_policy=cloudfront.OriginProtocolPolicy.HTTP_ONLY,
             http_port=8000,
         )
