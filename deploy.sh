@@ -1,20 +1,21 @@
 #!/bin/bash
 # =============================================================================
-# PropChain — Full Deploy Script (with API Gateway)
+# PropChain — Full Deploy Script (Simplified)
 # =============================================================================
 # Architecture:
-#   Frontend (CloudFront) → API Gateway → Fargate Backend
+#   Frontend (CloudFront) → Fargate Backend (HTTP)
 #   - CloudFront: serves React static files from S3
-#   - API Gateway: provides HTTPS endpoint with valid cert, proxies to Fargate
-#   - Fargate: runs backend with self-signed HTTPS cert (internal only)
+#   - CloudFront /api/* behavior: proxies to Fargate HTTP endpoint 
+#   - Fargate: runs backend with HTTP (port 8000)
 #
 # What this does (in order):
-#   1. CDK deploy               → creates/updates AWS infrastructure (includes API Gateway)
+#   1. CDK deploy               → creates/updates AWS infrastructure
 #   2. Docker build + push      → backend image to ECR
 #   3. ECS force-deploy         → restarts containers with the new image
-#   4. Get API Gateway URL      → from CloudFormation outputs
-#   5. React build + S3 sync    → frontend static files to S3 (with API URL)
-#   6. CloudFront invalidate    → clears CDN cache
+#   4. Get Fargate IP           → wait for task to get IP address
+#   5. Update CloudFront origin → point /api/* to Fargate IP:8000
+#   6. React build + S3 sync    → frontend static files to S3
+#   7. CloudFront invalidate    → clears CDN cache
 #
 # Prerequisites:
 #   - AWS CLI configured (aws configure)
@@ -52,12 +53,51 @@ cfn_output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
     --output text --region "$AWS_REGION"
 }
+# ── Helper: get Fargate task IP ──────────────────────────────────────────────
+get_fargate_ip() {
+  aws ecs list-tasks --cluster propchain --region "$AWS_REGION" --query 'taskArns[0]' --output text | \
+    xargs -I {} aws ecs describe-tasks --cluster propchain --tasks {} --region "$AWS_REGION" \
+    --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' --output text
+}
 
+# ── Helper: update CloudFront origin ─────────────────────────────────────────────
+update_cloudfront_origin() {
+  local fargate_ip="$1"
+  local dist_id="$2"
+  
+  # Get current CloudFront config
+  local config_json
+  config_json=$(aws cloudfront get-distribution-config --id "$dist_id" --region "$AWS_REGION")
+  local etag
+  etag=$(echo "$config_json" | jq -r '.ETag')
+  
+  # Update origin domain in config JSON
+  local updated_config
+  updated_config=$(echo "$config_json" | jq --arg ip "$fargate_ip" '
+    .DistributionConfig.Origins.Items |= map(
+      if .Id == "placeholder-ip" then
+        .DomainName = $ip |
+        .Id = $ip
+      else . end
+    ) |
+    .DistributionConfig.DefaultCacheBehavior.TargetOriginId = $ip |
+    (.DistributionConfig.CacheBehaviors.Items[]? | select(.TargetOriginId == "placeholder-ip").TargetOriginId) = $ip |
+    .DistributionConfig
+  ')
+  
+  # Update CloudFront distribution
+  aws cloudfront update-distribution \
+    --id "$dist_id" \
+    --if-match "$etag" \
+    --distribution-config "$updated_config" \
+    --region "$AWS_REGION" \
+    --output json > /dev/null
+}
 # =============================================================================
 # STEP 1 — CDK deploy (infrastructure)
 # =============================================================================
 if [[ "$APP_ONLY" == "false" ]]; then
-  log "Step 1/5 — Deploying CDK stack (infrastructure)..."
+  log "Step 1/7 — Deploying CDK stack (infrastructure)..."
   cd "$(dirname "$0")/infra"
 
   # Create/activate virtualenv for CDK
@@ -86,20 +126,18 @@ ECR_URI=$(cfn_output "ECRRepository")
 BUCKET=$(cfn_output "FrontendBucketName")
 CF_DIST_ID=$(cfn_output "CloudFrontDistributionId")
 CF_URL=$(cfn_output "CloudFrontURL")
-API_GATEWAY_URL=$(cfn_output "APIGatewayURL")
 ECS_SERVICE=$(aws ecs list-services --cluster propchain --region "$AWS_REGION" --query "serviceArns[0]" --output text | awk -F/ '{print $NF}')
 
 log "ECR:              $ECR_URI"
 log "S3 Bucket:        $BUCKET"
 log "CloudFront:       $CF_URL"
-log "API Gateway:      $API_GATEWAY_URL"
 log "ECS Service:      $ECS_SERVICE"
 
 # =============================================================================
 # STEP 2 — Build + push backend Docker image to ECR
 # =============================================================================
 if [[ "$INFRA_ONLY" == "false" ]]; then
-  log "Step 2/5 — Building backend Docker image..."
+  log "Step 2/7 — Building backend Docker image..."
 
   # Log in to ECR (token valid for 12 hours)
   aws ecr get-login-password --region "$AWS_REGION" | \
@@ -119,7 +157,7 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # =============================================================================
   # STEP 3 — Force ECS to redeploy with the new image
   # =============================================================================
-  log "Step 3/5 — Starting ECS service with new image..."
+  log "Step 3/7 — Starting ECS service with new image..."
   aws ecs update-service \
     --cluster propchain \
     --service "$ECS_SERVICE" \
@@ -130,27 +168,55 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   ok "ECS deployment triggered (takes ~2 minutes to become healthy)"
 
   # =============================================================================
-  # STEP 4 — Build React app with API Gateway URL
+  # STEP 4 — Wait for Fargate task to get IP
   # =============================================================================
-  log "Step 4/5 — Building React frontend..."
+  log "Step 4/7 — Waiting for Fargate task to get IP..."
+  
+  # Wait up to 5 minutes for task to get an IP
+  for i in {1..60}; do
+    FARGATE_IP=$(get_fargate_ip 2>/dev/null || echo "")
+    if [[ -n "$FARGATE_IP" && "$FARGATE_IP" != "None" ]]; then
+      ok "Fargate task running at IP: $FARGATE_IP"
+      break
+    fi
+    
+    if [[ $i -eq 60 ]]; then
+      warn "Timeout waiting for Fargate IP. Check ECS console."
+      exit 1
+    fi
+    
+    sleep 5
+  done
+
+  # =============================================================================
+  # STEP 5 — Update CloudFront origin to point to Fargate
+  # =============================================================================
+  log "Step 5/7 — Updating CloudFront origin to Fargate IP..."
+  update_cloudfront_origin "$FARGATE_IP" "$CF_DIST_ID"
+  ok "CloudFront updated to route /api/* to $FARGATE_IP:8000"
+
+  # =============================================================================
+  # STEP 6 — Build React app (no env vars needed)
+  # =============================================================================
+  log "Step 6/7 — Building React frontend..."
 
   cd frontend
   npm ci --silent
-  # Build with API Gateway URL passed as environment variable
-  VITE_API_URL="$API_GATEWAY_URL" npm run build
+  # Build frontend (CloudFront handles /api/* routing automatically)
+  npm run build
   cd ..
   ok "React build complete"
 
-  log "Step 4b/5 — Syncing frontend to S3..."
+  log "Step 6b/7 — Syncing frontend to S3..."
   aws s3 sync frontend/dist/ "s3://$BUCKET/" \
     --delete \
     --region "$AWS_REGION"
   ok "Frontend synced to S3"
 
   # =============================================================================
-  # STEP 5 — Invalidate CloudFront cache
+  # STEP 7 — Invalidate CloudFront cache
   # =============================================================================
-  log "Step 5/5 — Invalidating CloudFront cache..."
+  log "Step 7/7 — Invalidating CloudFront cache..."
   aws cloudfront create-invalidation \
     --distribution-id "$CF_DIST_ID" \
     --paths "/*" \
@@ -160,8 +226,8 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   echo ""
   echo -e "${GREEN}========================================"
   echo -e "  PropChain deployed successfully!"
-  echo -e "  Frontend:   $CF_URL"
-  echo -e "  API:        $API_GATEWAY_URL"
+  echo -e "  Frontend URL: $CF_URL"
+  echo -e "  Backend IP:   $FARGATE_IP:8000 (via CloudFront)"
   echo -e "========================================${NC}"
   echo ""
   warn "NEXT: Fill in secrets at AWS Console → Secrets Manager → 'propchain/config'"

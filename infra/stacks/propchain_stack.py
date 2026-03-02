@@ -1,17 +1,16 @@
 """
 PropChain Infrastructure Stack (Hackathon Edition)
 ====================================================
-Lean setup — no ALB, no VPC, no NAT Gateway.
+Simple prototype setup - HTTP backend, CloudFront proxy.
 
 Resources:
   1. ECR Repository       — Docker image storage
-  2. Secrets Manager      — encrypted app config
+  2. Secrets Manager      — encrypted app config  
   3. IAM Roles            — execution role + task role (Bedrock access)
   4. ECS Cluster          — Fargate control plane
-  5. Fargate Service      — public IP, no load balancer
+  5. Fargate Service      — HTTP backend (port 8000)
   6. S3 Bucket            — React static files
-  7. CloudFront           — HTTPS CDN for frontend static files
-  8. API Gateway          — HTTPS endpoint for backend API (proxies to Fargate)
+  7. CloudFront           — frontend + API proxy to Fargate
 """
 
 from aws_cdk import (
@@ -27,9 +26,6 @@ from aws_cdk import (
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_ec2 as ec2,
-    aws_ssm as ssm,
-    aws_apigateway as apigw,
-    aws_elasticloadbalancingv2 as elbv2,
 )
 from constructs import Construct
 
@@ -154,7 +150,7 @@ class PropChainStack(Stack):
                 "AWS_SECRET_ACCESS_KEY":ecs.Secret.from_secrets_manager(app_secrets, "AWS_SECRET_ACCESS_KEY"),
             },
             health_check=ecs.HealthCheck(
-                command=["CMD-SHELL", "curl -sk https://localhost:8000/api/health || exit 1"],
+                command=["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"],
                 interval=Duration.seconds(30),
                 timeout=Duration.seconds(5),
                 retries=3,
@@ -163,17 +159,15 @@ class PropChainStack(Stack):
         )
         container.add_port_mappings(ecs.PortMapping(container_port=8000))
 
-        # Security group: allow inbound 8000 from CloudFront IP ranges only
-        # For simplicity we open 8000 to all — CloudFront will be the only caller
-        # in practice (frontend always goes through CF). Tighten post-hackathon.
+        # Security group: allow HTTP 8000 from anywhere (CloudFront will proxy)
         sg = ec2.SecurityGroup(
             self,
             "PropChainSG",
             vpc=default_vpc,
-            description="PropChain Fargate task - allow port 8000",
+            description="PropChain Fargate task - allow HTTP port 8000",
             allow_all_outbound=True,
         )
-        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(8000), "FastAPI")
+        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(8000), "HTTP API")
 
         # desired_count=0: deploy the service definition but start NO tasks.
         # After pushing the Docker image, run:
@@ -191,38 +185,6 @@ class PropChainStack(Stack):
             min_healthy_percent=0,
         )
 
-        # Network Load Balancer — provides stable DNS for Fargate tasks
-        # API Gateway will point to this NLB instead of hardcoding task IP
-        nlb = elbv2.NetworkLoadBalancer(
-            self,
-            "PropChainNLB",
-            vpc=default_vpc,
-            internet_facing=False,  # internal only, accessed by API Gateway
-            load_balancer_name="propchain-nlb",
-        )
-
-        # Target group for Fargate service
-        target_group = elbv2.NetworkTargetGroup(
-            self,
-            "PropChainTargetGroup",
-            vpc=default_vpc,
-            port=8000,
-            protocol=elbv2.Protocol.TCP,
-            deregistration_delay=Duration.seconds(30),
-            target_type=elbv2.TargetType.IP,
-        )
-
-        # Route NLB traffic to target group
-        nlb.add_listener(
-            "PropChainListener",
-            port=8000,
-            protocol=elbv2.Protocol.TCP,
-            default_target_groups=[target_group],
-        )
-
-        # Register Fargate service with NLB
-        fargate_service.attach_to_network_target_group(target_group)
-
         # ──────────────────────────────────────────────────────────────────────
         # 6. S3 Bucket — React frontend static files
         # ──────────────────────────────────────────────────────────────────────
@@ -237,22 +199,37 @@ class PropChainStack(Stack):
         )
 
         # ──────────────────────────────────────────────────────────────────────
-        # 7. CloudFront Distribution
-        # Serves frontend React app from S3 (static files only)
-        # API Gateway handles all /api/* requests (separate endpoint)
+        # 7. CloudFront Distribution  
+        # Serves frontend from S3 + proxies /api/* to Fargate HTTP
         # ──────────────────────────────────────────────────────────────────────
+        
+        # Create origin for Fargate backend (will be set post-deploy)
+        # For now, use placeholder - deploy script will update with real Fargate IP
+        backend_origin = origins.HttpOrigin(
+            "placeholder-ip",  # Will be updated by deploy script
+            protocol_policy=cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+            http_port=8000,
+        )
+        
         distribution = cloudfront.Distribution(
             self,
-            "PropChainCDN",
-            comment="PropChain - React frontend CDN",
+            "PropChainCDN", 
+            comment="PropChain - Frontend + API proxy",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3BucketOrigin.with_origin_access_control(
-                    frontend_bucket,
-                ),
+                origin=origins.S3BucketOrigin.with_origin_access_control(frontend_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 compress=True,
             ),
+            additional_behaviors={
+                "/api/*": cloudfront.BehaviorOptions(
+                    origin=backend_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,  # Don't cache API responses
+                    origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                )
+            },
             # SPA routing: serve index.html for unknown paths (React Router handles them)
             error_responses=[
                 cloudfront.ErrorResponse(
@@ -264,7 +241,7 @@ class PropChainStack(Stack):
                 cloudfront.ErrorResponse(
                     http_status=404,
                     response_http_status=200,
-                    response_page_path="/index.html",
+                    response_page_path="/index.html", 
                     ttl=Duration.seconds(0),
                 ),
             ],
@@ -272,78 +249,11 @@ class PropChainStack(Stack):
         )
 
         # ──────────────────────────────────────────────────────────────────────
-        # 8. API Gateway
-        # Provides HTTPS endpoint with valid AWS-managed certificate
-        # Proxies requests to Fargate backend (handles self-signed cert internally)
-        # ──────────────────────────────────────────────────────────────────────
-        api = apigw.RestApi(
-            self,
-            "PropChainAPI",
-            rest_api_name="propchain-api",
-            description="PropChain Backend API",
-            deploy_options=apigw.StageOptions(
-                stage_name="prod",
-                throttling_rate_limit=100,
-                throttling_burst_limit=200,
-            ),
-        )
-
-        # Create /api resource and proxy all requests to it
-        api_resource = api.root.add_resource("api")
-        
-        # HTTP integration to Fargate backend via NLB
-        # NLB provides stable DNS — IP changes won't break API Gateway!
-        # NLB DNS: propchain-nlb-xxxxx.elb.ap-south-1.amazonaws.com
-        backend_integration = apigw.HttpIntegration(
-            url=f"https://{nlb.load_balancer_dns_name}:8000/"
-        )
-
-        # Add proxy resource: /api/{proxy+} routes all to backend
-        proxy_resource = api_resource.add_resource("{proxy+}")
-        proxy_resource.add_method(
-            "ANY",
-            backend_integration,
-            method_responses=[apigw.MethodResponse(status_code="200")]
-        )
-        
-        # Handle OPTIONS preflight for /api/{proxy+}
-        proxy_resource.add_method(
-            "OPTIONS",
-            backend_integration,
-            method_responses=[apigw.MethodResponse(status_code="200")]
-        )
-
-        # Also handle /api directly
-        api_resource.add_method(
-            "ANY",
-            backend_integration,
-            method_responses=[apigw.MethodResponse(status_code="200")]
-        )
-        
-        # Handle OPTIONS preflight for /api
-        api_resource.add_method(
-            "OPTIONS",
-            backend_integration,
-            method_responses=[apigw.MethodResponse(status_code="200")]
-        )
-        
-        # Enable CORS on the API
-        api.root.add_method(
-            "OPTIONS",
-            backend_integration,
-            method_responses=[apigw.MethodResponse(status_code="200")]
-        )
-
-        # ──────────────────────────────────────────────────────────────────────
         # Outputs
         # ──────────────────────────────────────────────────────────────────────
         CfnOutput(self, "CloudFrontURL",
             value=f"https://{distribution.distribution_domain_name}",
-            description="Frontend URL (React app from CloudFront)",
-        )
-        CfnOutput(self, "APIGatewayURL",
-            value=api.url,
-            description="API Gateway endpoint (valid HTTPS cert). Frontend calls this for /api/*",
+            description="Frontend URL - serves React app + proxies /api/* to backend",
         )
         CfnOutput(self, "ECRRepository",
             value=backend_repo.repository_uri,

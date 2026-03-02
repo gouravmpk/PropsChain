@@ -3,20 +3,11 @@ import axios from 'axios'
 /**
  * API Configuration
  * 
- * PROD: Uses API Gateway endpoint from build-time environment variable
- *   - VITE_API_URL should be set to API Gateway URL at build time
- *   - API Gateway has valid AWS-managed HTTPS certificate
- *   - Proxies to Fargate backend (handles self-signed cert internally)
- * 
- * DEV: Uses Vite proxy (vite.config.js) → /api proxies to localhost:8000
+ * SIMPLIFIED: CloudFront routes /api/* to backend automatically
+ * No need for environment variables or dynamic config
  */
 
-// Get API Gateway URL from build environment
-// Handle trailing slashes: remove them, then add /api only if not already present
-const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '') // Remove trailing slashes
-const baseURL = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`
-
-const API = axios.create({ baseURL })
+const API = axios.create({ baseURL: '/api' })
 
 API.interceptors.request.use(config => {
   const token = localStorage.getItem('propchain_token')
