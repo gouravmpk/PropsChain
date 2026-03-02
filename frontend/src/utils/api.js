@@ -12,7 +12,8 @@ import axios from 'axios'
  */
 
 // Get API Gateway URL from build environment
-const apiUrl = import.meta.env.VITE_API_URL || '/api'
+// Handle trailing slashes: remove them, then add /api only if not already present
+const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '') // Remove trailing slashes
 const baseURL = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`
 
 const API = axios.create({ baseURL })

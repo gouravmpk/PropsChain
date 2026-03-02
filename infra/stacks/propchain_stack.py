@@ -258,24 +258,85 @@ class PropChainStack(Stack):
         # Create /api resource and proxy all requests to it
         api_resource = api.root.add_resource("api")
         
-        # Use a mock integration as placeholder
+        # Use a mock integration as placeholder with CORS enabled
         # The deploy script will update this to HTTP integration pointing to Fargate after IP is assigned
         mock_integration = apigw.MockIntegration(
             integration_responses=[
-                apigw.IntegrationResponse(status_code="200")
+                apigw.IntegrationResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": "'*'",
+                        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+                        "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+                    }
+                )
             ]
         )
 
         # Add proxy resource: /api/{proxy+} routes all to backend
         proxy_resource = api_resource.add_resource("{proxy+}")
-        proxy_resource.add_method("ANY", mock_integration, method_responses=[
-            apigw.MethodResponse(status_code="200")
-        ])
+        proxy_resource.add_method(
+            "ANY",
+            mock_integration,
+            method_responses=[
+                apigw.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True,
+                    }
+                )
+            ]
+        )
+        
+        # Handle OPTIONS preflight requests
+        proxy_resource.add_method(
+            "OPTIONS",
+            mock_integration,
+            method_responses=[
+                apigw.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True,
+                    }
+                )
+            ]
+        )
 
-        # Also handle /api directly
-        api_resource.add_method("ANY", mock_integration, method_responses=[
-            apigw.MethodResponse(status_code="200")
-        ])
+        # Also handle /api directly with CORS
+        api_resource.add_method(
+            "ANY",
+            mock_integration,
+            method_responses=[
+                apigw.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True,
+                    }
+                )
+            ]
+        )
+        
+        # Handle OPTIONS preflight for /api
+        api_resource.add_method(
+            "OPTIONS",
+            mock_integration,
+            method_responses=[
+                apigw.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True,
+                    }
+                )
+            ]
+        )
 
         # ──────────────────────────────────────────────────────────────────────
         # Outputs
