@@ -53,35 +53,58 @@ cfn_output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
     --output text --region "$AWS_REGION"
 }
-# ── Helper: get Fargate task IP ──────────────────────────────────────────────
-get_fargate_ip() {
-  aws ecs list-tasks --cluster propchain --region "$AWS_REGION" --query 'taskArns[0]' --output text | \
-    xargs -I {} aws ecs describe-tasks --cluster propchain --tasks {} --region "$AWS_REGION" \
-    --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' --output text
+# ── Helper: get Fargate task public IP (latest running task) ─────────────────
+get_fargate_public_ip() {
+  local task_arns_json task_arn eni_id
+  task_arns_json=$(aws ecs list-tasks --cluster propchain --region "$AWS_REGION" --desired-status RUNNING --output json 2>/dev/null)
+  task_arn=$(echo "$task_arns_json" | jq -r '.taskArns[0]')
+  [[ -z "$task_arn" || "$task_arn" == "None" ]] && return 1
+
+  # Prefer newest running task during rolling deploys
+  if [[ $(echo "$task_arns_json" | jq '.taskArns | length') -gt 1 ]]; then
+    task_arn=$(echo "$task_arns_json" | jq -r '.taskArns[]' | \
+      xargs aws ecs describe-tasks --cluster propchain --region "$AWS_REGION" --tasks | \
+      jq -r '.tasks | sort_by(.startedAt) | last | .taskArn')
+  fi
+
+  eni_id=$(aws ecs describe-tasks --cluster propchain --tasks "$task_arn" --region "$AWS_REGION" \
+    --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text 2>/dev/null)
+  [[ -z "$eni_id" || "$eni_id" == "None" ]] && return 1
+
+  aws ec2 describe-network-interfaces --network-interface-ids "$eni_id" --region "$AWS_REGION" \
+    --query 'NetworkInterfaces[0].Association.PublicIp' --output text 2>/dev/null
 }
 
 # ── Helper: update CloudFront origin ─────────────────────────────────────────────
 update_cloudfront_origin() {
   local fargate_ip="$1"
   local dist_id="$2"
+  local backend_domain api_origin_id
+
+  # CloudFront custom origins require a DNS name, not a raw IP
+  backend_domain="${fargate_ip}.nip.io"
   
   # Get current CloudFront config
   local config_json
   config_json=$(aws cloudfront get-distribution-config --id "$dist_id" --region "$AWS_REGION")
   local etag
   etag=$(echo "$config_json" | jq -r '.ETag')
+
+  # Find the origin used by /api/* behavior
+  api_origin_id=$(echo "$config_json" | jq -r '.DistributionConfig.CacheBehaviors.Items[]? | select(.PathPattern == "/api/*") | .TargetOriginId' | head -n1)
+  if [[ -z "$api_origin_id" || "$api_origin_id" == "null" ]]; then
+    warn "Could not find CloudFront /api/* behavior origin"
+    return 1
+  fi
   
-  # Update origin domain in config JSON
+  # Update only the /api/* origin domain in config JSON
   local updated_config
-  updated_config=$(echo "$config_json" | jq --arg ip "$fargate_ip" '
+  updated_config=$(echo "$config_json" | jq --arg origin_id "$api_origin_id" --arg domain "$backend_domain" '
     .DistributionConfig.Origins.Items |= map(
-      if .Id == "placeholder-ip" then
-        .DomainName = $ip |
-        .Id = $ip
+      if .Id == $origin_id then
+        .DomainName = $domain
       else . end
     ) |
-    .DistributionConfig.DefaultCacheBehavior.TargetOriginId = $ip |
-    (.DistributionConfig.CacheBehaviors.Items[]? | select(.TargetOriginId == "placeholder-ip").TargetOriginId) = $ip |
     .DistributionConfig
   ')
   
@@ -92,6 +115,32 @@ update_cloudfront_origin() {
     --distribution-config "$updated_config" \
     --region "$AWS_REGION" \
     --output json > /dev/null
+}
+
+# ── Helper: wait for API health via CloudFront ───────────────────────────────
+wait_for_api_health() {
+  local base_url="$1"
+  local max_attempts="${2:-120}"
+  local attempt=1
+  local health_url="${base_url%/}/api/health"
+
+  while [[ $attempt -le $max_attempts ]]; do
+    local status
+    status=$(curl -s -o /tmp/propchain-health.json -w "%{http_code}" "$health_url" || true)
+
+    if [[ "$status" == "200" ]]; then
+      ok "API health check passed (200): $health_url"
+      return 0
+    fi
+
+    log "Waiting for API health ($attempt/$max_attempts): HTTP $status"
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+
+  warn "API health check failed at: $health_url"
+  warn "Last response body: $(cat /tmp/propchain-health.json 2>/dev/null || echo 'n/a')"
+  return 1
 }
 # =============================================================================
 # STEP 1 — CDK deploy (infrastructure)
@@ -167,21 +216,28 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
     --output json > /dev/null
   ok "ECS deployment triggered (takes ~2 minutes to become healthy)"
 
+  log "Step 3b/7 — Waiting for ECS service to become stable..."
+  aws ecs wait services-stable \
+    --cluster propchain \
+    --services "$ECS_SERVICE" \
+    --region "$AWS_REGION"
+  ok "ECS service is stable"
+
   # =============================================================================
   # STEP 4 — Wait for Fargate task to get IP
   # =============================================================================
-  log "Step 4/7 — Waiting for Fargate task to get IP..."
+  log "Step 4/7 — Waiting for Fargate task public IP..."
   
-  # Wait up to 5 minutes for task to get an IP
+  # Wait up to 5 minutes for task to get a public IP
   for i in {1..60}; do
-    FARGATE_IP=$(get_fargate_ip 2>/dev/null || echo "")
+    FARGATE_IP=$(get_fargate_public_ip 2>/dev/null || echo "")
     if [[ -n "$FARGATE_IP" && "$FARGATE_IP" != "None" ]]; then
-      ok "Fargate task running at IP: $FARGATE_IP"
+      ok "Fargate task public IP: $FARGATE_IP"
       break
     fi
     
     if [[ $i -eq 60 ]]; then
-      warn "Timeout waiting for Fargate IP. Check ECS console."
+      warn "Timeout waiting for Fargate public IP. Check ECS console."
       exit 1
     fi
     
@@ -193,7 +249,7 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # =============================================================================
   log "Step 5/7 — Updating CloudFront origin to Fargate IP..."
   update_cloudfront_origin "$FARGATE_IP" "$CF_DIST_ID"
-  ok "CloudFront updated to route /api/* to $FARGATE_IP:8000"
+  ok "CloudFront updated to route /api/* to ${FARGATE_IP}.nip.io:8000"
 
   # =============================================================================
   # STEP 6 — Build React app (no env vars needed)
@@ -222,6 +278,12 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
     --paths "/*" \
     --output json > /dev/null
   ok "CloudFront cache invalidated"
+
+  # =============================================================================
+  # STEP 8 — Post-deploy health check (must be 200)
+  # =============================================================================
+  log "Step 8/8 — Verifying API health through CloudFront..."
+  wait_for_api_health "$CF_URL" 120
 
   echo ""
   echo -e "${GREEN}========================================"
