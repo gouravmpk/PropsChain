@@ -204,17 +204,23 @@ class PropChainStack(Stack):
         # ──────────────────────────────────────────────────────────────────────
         # 7. CloudFront Distribution
         # default: /* -> S3 (React app)
-        # /api/*  -> Fargate public IP (FastAPI backend)
-        #
-        # NOTE: CloudFront cannot use a dynamic Fargate IP as an origin directly
-        # (IPs change on redeploy). The deploy script writes the current task IP
-        # to a CloudFront custom origin after each ECS deploy.
-        # For now the backend URL is exported — frontend reads it from env var.
+        # /api/*  -> Fargate backend (HTTPS with self-signed cert OK internally)
+        # The backend origin IP is updated by deploy script after Fargate provision
         # ──────────────────────────────────────────────────────────────────────
+        
+        # Custom origin for backend (IP will be updated by deploy script)
+        backend_origin = origins.HttpOrigin(
+            "placeholder-ip.local:8000",  # Placeholder - deploy script updates this
+            http_port=80,
+            https_port=8000,
+            protocol_policy=cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+            origin_ssl_protocols=[cloudfront.OriginSslPolicy.TLS_V1_2_2021_06],
+        )
+
         distribution = cloudfront.Distribution(
             self,
             "PropChainCDN",
-            comment="PropChain - React frontend CDN",
+            comment="PropChain - React frontend CDN + API proxy",
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3BucketOrigin.with_origin_access_control(
                     frontend_bucket,
@@ -223,6 +229,16 @@ class PropChainStack(Stack):
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                 compress=True,
             ),
+            # API proxy behavior: route /api/* to backend
+            additional_behaviors={
+                "/api/*": cloudfront.BehaviorOptions(
+                    origin=backend_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,  # Don't cache API responses
+                    compress=False,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                ),
+            },
             # SPA routing: serve index.html for unknown paths (React Router handles them)
             error_responses=[
                 cloudfront.ErrorResponse(

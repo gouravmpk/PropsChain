@@ -132,14 +132,17 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   log "Step 4/5 — Building React frontend..."
 
   # Get the Fargate task's public IP (changes on every redeploy)
-  # Wait up to 2 minutes for the task to be provisioned and get an IP
+  # Wait up to 3.5 minutes for the task to be provisioned and get an IP
   log "Waiting for Fargate task to be provisioned..."
   FARGATE_IP=""
-  for attempt in {1..24}; do
+  MAX_ATTEMPTS=42  # ~3.5 minutes at 5-sec intervals
+  
+  for attempt in $(seq 1 $MAX_ATTEMPTS); do
     TASK_ARN=$(aws ecs list-tasks --cluster propchain --region "$AWS_REGION" \
-      --query 'taskArns[0]' --output text)
+      --query 'taskArns[0]' --output text 2>/dev/null)
     
     if [[ -z "$TASK_ARN" ]] || [[ "$TASK_ARN" == "None" ]]; then
+      [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
       echo -n "."
       sleep 5
       continue
@@ -152,6 +155,7 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
       --output text 2>/dev/null)
     
     if [[ -z "$ENI" ]] || [[ "$ENI" == "None" ]]; then
+      [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
       echo -n "."
       sleep 5
       continue
@@ -164,49 +168,32 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
     
     if [[ -n "$FARGATE_IP" ]] && [[ "$FARGATE_IP" != "None" ]]; then
       echo ""
+      log "✓ Fargate IP assigned: $FARGATE_IP"
       break
     fi
     
+    [[ $((attempt % 6)) -eq 0 ]] && echo -n "[$((attempt*5))s] "
     echo -n "."
     sleep 5
   done
 
   if [[ -z "$FARGATE_IP" ]] || [[ "$FARGATE_IP" == "None" ]]; then
-    warn "Could not get Fargate IP (task still provisioning). Using placeholder."
+    warn "Could not get Fargate IP after $(($MAX_ATTEMPTS * 5))s. Using placeholder."
+    warn "This is likely a timing issue. The task may be still provisioning."
+    warn "Run again or check AWS Console → ECS → Tasks for the actual IP."
     FARGATE_IP="error-getting-ip"
-  else
-    log "Fargate API IP: $FARGATE_IP"
   fi
 
+  log "Step 4b/5 — Updating CloudFront origin with Fargate IP..."
+  # Update CloudFront distribution's backend origin to point to new Fargate IP
+  ./update-cloudfront-origin.sh "$FARGATE_IP" "$CF_DIST_ID"
+  ok "CloudFront origin updated to $FARGATE_IP"
+
   cd frontend
-  # Generate config file with current Fargate IP
-  # This will be served at /.well-known/propchain-config.json
-  ../generate-config.sh "$FARGATE_IP" "public"
-  
-  # Build React WITHOUT hardcoding the backend URL
-  # Frontend now reads URL from config at runtime (see api.js)
   npm ci --silent
   npm run build
   cd ..
   ok "React build complete"
-
-  log "Step 4b/5 — Updating Parameter Store with new Fargate IP..."
-  # Update the SSM Parameter with the new Fargate IP
-  BACKEND_URL="https://$FARGATE_IP:8000"
-  
-  # If BACKEND_URL_PARAM is empty, the CDK stack hasn't been deployed yet
-  if [[ -n "$BACKEND_URL_PARAM" ]]; then
-    aws ssm put-parameter \
-      --name "$BACKEND_URL_PARAM" \
-      --value "$BACKEND_URL" \
-      --overwrite \
-      --region "$AWS_REGION" \
-      --output json > /dev/null
-    log "Parameter Store updated: $BACKEND_URL"
-  else
-    warn "CDK stack not deployed yet — skipping Parameter Store update"
-    warn "Run: ./deploy.sh (full deploy) to set up infrastructure"
-  fi
 
   log "Step 4c/5 — Syncing frontend to S3..."
   # --delete removes files from S3 that are no longer in the build output
@@ -218,7 +205,6 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
   # =============================================================================
   # STEP 5 — Invalidate CloudFront cache
   # =============================================================================
-  log "Step 5/5 — Invalidating CloudFront cache..."
   log "Step 5/5 — Invalidating CloudFront cache..."
   # After uploading new files to S3, CloudFront edge nodes still serve cached
   # old files. Invalidating /* forces them to fetch fresh copies from S3.
