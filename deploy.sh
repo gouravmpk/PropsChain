@@ -157,15 +157,21 @@ if [[ "$INFRA_ONLY" == "false" ]]; then
 
   log "Step 4b/5 — Updating Parameter Store with new Fargate IP..."
   # Update the SSM Parameter with the new Fargate IP
-  # Frontend will fetch this at startup without needing a rebuild
   BACKEND_URL="https://$FARGATE_IP:8000"
-  aws ssm put-parameter \
-    --name "$BACKEND_URL_PARAM" \
-    --value "$BACKEND_URL" \
-    --overwrite \
-    --region "$AWS_REGION" \
-    --output json > /dev/null
-  log "Parameter Store updated: $BACKEND_URL"
+  
+  # If BACKEND_URL_PARAM is empty, the CDK stack hasn't been deployed yet
+  if [[ -n "$BACKEND_URL_PARAM" ]]; then
+    aws ssm put-parameter \
+      --name "$BACKEND_URL_PARAM" \
+      --value "$BACKEND_URL" \
+      --overwrite \
+      --region "$AWS_REGION" \
+      --output json > /dev/null
+    log "Parameter Store updated: $BACKEND_URL"
+  else
+    warn "CDK stack not deployed yet — skipping Parameter Store update"
+    warn "Run: ./deploy.sh (full deploy) to set up infrastructure"
+  fi
 
   log "Step 4c/5 — Syncing frontend to S3..."
   # --delete removes files from S3 that are no longer in the build output
