@@ -6,6 +6,7 @@ POST /auth/login     — get JWT token
 GET  /auth/me        — current user info
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -20,7 +21,8 @@ from config.database import users_collection
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 # ── Config ────────────────────────────────────────────────────────────────────
-SECRET_KEY = "propchain-secret-key-opsai-hackathon-2026"
+# Read from env; fall back to a dev-only default (never hardcode in prod)
+SECRET_KEY = os.getenv("JWT_SECRET", "propchain-dev-secret-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
@@ -59,14 +61,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def _safe_user(user: dict) -> dict:
     """Strip sensitive and MongoDB-specific fields."""
-    return {k: v for k, v in user.items() if k not in ("password", "_id")}
+    HIDDEN = ("password", "_id", "aadhaar")
+    return {k: v for k, v in user.items() if k not in HIDDEN}
 
 
 async def get_current_user_from_token(authorization: Optional[str]) -> Optional[dict]:
     """Decode JWT and return user from DB. Returns None if token is missing/invalid."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
-    token = authorization.split(" ", 1)[1]
+    parts = authorization.split(" ", 1)
+    if len(parts) < 2:
+        return None
+    token = parts[1]
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")

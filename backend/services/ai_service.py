@@ -23,7 +23,7 @@ load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 BEDROCK_REGION = os.getenv("BEDROCK_REGION", "ap-south-1")
-BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "apac.anthropic.claude-sonnet-4-20250514-v1:0")
+BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "apac.amazon.nova-pro-v1:0")
 SECRETS_MANAGER_REGION = "ap-south-1"
 SECRET_NAME = "keys"
 
@@ -234,8 +234,11 @@ confidence is your confidence in the assessment (0.0 to 1.0)"""
         body = json.loads(response["body"].read())
         content = body["content"][0]["text"]
 
-    json_match = content[content.find("{"):content.rfind("}") + 1]
-    return json.loads(json_match)
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError(f"No JSON object found in Bedrock response. Raw: {content[:200]}")
+    return json.loads(content[start:end + 1])
 
 
 # ---------------------------------------------------------------------------
@@ -586,8 +589,11 @@ Respond ONLY with valid JSON in this exact format:
         inferenceConfig={"maxTokens": 4096},
     )
     raw = response["output"]["message"]["content"][0]["text"]
-    json_str = raw[raw.find("{"):raw.rfind("}") + 1]
-    return json.loads(json_str)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError(f"No JSON object found in cross-verify response. Raw: {raw[:200]}")
+    return json.loads(raw[start:end + 1])
 
 
 def _mock_cross_verify(docs: list[dict]) -> dict:

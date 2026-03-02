@@ -16,6 +16,8 @@ venv/
 # Environment — NEVER commit secrets
 backend/.env
 .env
+seed.py
+.seeds.py
 
 # macOS
 .DS_Store

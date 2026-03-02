@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, Building2, PlusCircle, ShoppingBag,
   ShieldCheck, Link2, ArrowLeftRight, LogOut, Menu, X,
-  ChevronRight, Wallet, Bell, User, Boxes, GitCompare
+  ChevronRight, Wallet, Bell, Boxes, GitCompare, Briefcase
 } from 'lucide-react'
 import { fmt } from '../utils/api'
 
@@ -17,6 +17,7 @@ const navItems = [
   { to: '/app/cross-verify',       label: 'Cross-Doc Check', icon: GitCompare },
   { to: '/app/blockchain',         label: 'Blockchain',      icon: Link2 },
   { to: '/app/transactions',       label: 'Transactions',    icon: ArrowLeftRight },
+  { to: '/app/portfolio',          label: 'My Portfolio',    icon: Briefcase },
 ]
 
 export default function Layout() {
@@ -118,9 +119,9 @@ export default function Layout() {
               <Bell className="w-4.5 h-4.5" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full"></span>
             </button>
-            <button className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
+            <NavLink to="/app/profile" className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold hover:opacity-90 transition-opacity">
               {user?.name?.charAt(0) || 'U'}
-            </button>
+            </NavLink>
           </div>
         </header>
 

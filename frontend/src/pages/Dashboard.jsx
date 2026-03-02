@@ -4,21 +4,6 @@ import API, { fmt } from '../utils/api'
 import { Building2, ShieldCheck, Link2, TrendingUp, Users, Globe2, Cpu, ArrowRight, AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
-const chartData = [
-  { month: 'Oct', properties: 32, value: 420 },
-  { month: 'Nov', properties: 58, value: 680 },
-  { month: 'Dec', properties: 45, value: 550 },
-  { month: 'Jan', properties: 89, value: 1100 },
-  { month: 'Feb', properties: 124, value: 1650 },
-  { month: 'Mar', properties: 98, value: 1280 },
-]
-
-const pieData = [
-  { name: 'Verified', value: 68, color: '#10b981' },
-  { name: 'Pending', value: 22, color: '#f59e0b' },
-  { name: 'Under Review', value: 10, color: '#ef4444' },
-]
-
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
@@ -31,17 +16,51 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
+function generateChartData(stats) {
+  if (!stats) return []
+  // Generate synthetic 6-month trend from total values
+  const months = ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar']
+  return months.map((month, i) => ({
+    month,
+    properties: Math.max(10, Math.floor((stats.total_properties || 0) * (0.3 + i * 0.1))),
+    value: Math.max(200, Math.floor((stats.total_market_value || 0) / 10000000 * (0.2 + i * 0.15))),
+  }))
+}
+
+function generatePieData(stats) {
+  if (!stats) return []
+  const verified = stats.verified_properties || 0
+  const total = stats.total_properties || 1
+  const verifiedPct = Math.round((verified / total) * 100)
+  const pendingPct = Math.max(10, Math.round(verifiedPct * 0.3))
+  const reviewPct = Math.max(5, 100 - verifiedPct - pendingPct)
+  
+  return [
+    { name: 'Verified', value: Math.min(verifiedPct, 100), color: '#10b981' },
+    { name: 'Pending', value: pendingPct, color: '#f59e0b' },
+    { name: 'Under Review', value: reviewPct, color: '#ef4444' },
+  ]
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
+  const [chartData, setChartData] = useState([])
+  const [pieData, setPieData] = useState([])
   const [loading, setLoading] = useState(true)
   const [recentTxns, setRecentTxns] = useState([])
 
   useEffect(() => {
     Promise.all([API.get('/dashboard/stats'), API.get('/transactions')]).then(([s, t]) => {
-      setStats(s.data)
-      setRecentTxns(t.data.transactions.slice(0, 5))
+      const statsData = s.data
+      setStats(statsData)
+      setChartData(generateChartData(statsData))
+      setPieData(generatePieData(statsData))
+      setRecentTxns(t.data.transactions?.slice(0, 5) || [])
       setLoading(false)
-    }).catch(() => setLoading(false))
+    }).catch(err => {
+      console.error('Dashboard load error:', err)
+      setLoading(false)
+    })
   }, [])
 
   if (loading) return (

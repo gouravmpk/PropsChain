@@ -14,6 +14,18 @@ API.interceptors.request.use(config => {
   return config
 })
 
+API.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('propchain_token')
+      localStorage.removeItem('propchain_user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default API
 
 export const fmt = {

@@ -1,24 +1,44 @@
 import React, { useEffect, useState } from 'react'
 import API, { fmt } from '../utils/api'
 import toast from 'react-hot-toast'
-import { Link2, CheckCircle2, Copy, RefreshCw, Shield, Cpu, Clock } from 'lucide-react'
+import { Link2, CheckCircle2, Copy, RefreshCw, Shield, Cpu, Clock, Search, X } from 'lucide-react'
 
 export default function Blockchain() {
   const [chain, setChain] = useState([])
   const [integrity, setIntegrity] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [hashQuery, setHashQuery] = useState('')
+  const [hashResult, setHashResult] = useState(null)
+  const [hashSearching, setHashSearching] = useState(false)
 
   const load = async () => {
     setLoading(true)
-    const [b, v] = await Promise.all([API.get('/blockchain'), API.get('/blockchain/verify')])
-    setChain(b.data.chain.reverse())
-    setIntegrity(v.data)
-    setLoading(false)
+    try {
+      const [b, v] = await Promise.all([API.get('/blockchain'), API.get('/blockchain/verify')])
+      setChain([...b.data.chain].reverse())
+      setIntegrity(v.data)
+    } catch (err) {
+      console.error('Blockchain load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
 
   const copyHash = (h) => { navigator.clipboard.writeText(h); toast.success('Hash copied!') }
+
+  const searchByHash = async () => {
+    if (!hashQuery.trim()) return toast.error('Enter a block hash')
+    setHashSearching(true)
+    setHashResult(null)
+    try {
+      const { data } = await API.get(`/blockchain/block/${hashQuery.trim()}`)
+      setHashResult(data)
+    } catch {
+      toast.error('Block not found')
+    } finally { setHashSearching(false) }
+  }
 
   const typeColors = {
     PROPERTY_REGISTRATION: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
@@ -39,6 +59,57 @@ export default function Blockchain() {
         <button onClick={load} className="btn-secondary text-sm flex items-center gap-2 self-start">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
+      </div>
+
+      {/* Hash search */}
+      <div className="glass-card">
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              value={hashQuery}
+              onChange={e => { setHashQuery(e.target.value); setHashResult(null) }}
+              onKeyDown={e => e.key === 'Enter' && searchByHash()}
+              placeholder="Search by block hash (SHA-256)…"
+              className="input-field pl-10 text-sm py-2.5"
+            />
+          </div>
+          {hashQuery && (
+            <button onClick={() => { setHashQuery(''); setHashResult(null) }}
+              className="px-3 text-slate-400 hover:text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <button onClick={searchByHash} disabled={hashSearching}
+            className="btn-primary text-sm px-5 flex items-center gap-2 disabled:opacity-50">
+            {hashSearching
+              ? <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              : <Search className="w-4 h-4" />}
+            Search
+          </button>
+        </div>
+
+        {hashResult && (
+          <div className="mt-4 p-4 rounded-xl bg-indigo-600/8 border border-indigo-500/20 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Block #{hashResult.block_index} found
+              <span className="text-xs font-normal text-slate-400 ml-1">· {hashResult.property_id} · {hashResult.transaction_type}</span>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-2.5 rounded-lg bg-white/3">
+                <div className="text-slate-500 mb-1">Block Hash</div>
+                <div className="hash-text truncate" title={hashResult.hash}>{fmt.shortHash(hashResult.hash)}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-white/3">
+                <div className="text-slate-500 mb-1">Previous Hash</div>
+                <div className="hash-text truncate" title={hashResult.previous_hash}>{fmt.shortHash(hashResult.previous_hash)}</div>
+              </div>
+            </div>
+            <div className="text-xs text-slate-500 flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {fmt.date(hashResult.timestamp)}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Status */}
@@ -113,7 +184,7 @@ export default function Blockchain() {
               <div className="p-3 rounded-xl bg-white/3">
                 <div className="text-slate-500 text-xs font-medium mb-1">Block Hash</div>
                 <div className="flex items-center gap-2">
-                  <div className="hash-text flex-1 truncate">{block.hash}</div>
+                  <div className="hash-text flex-1 truncate" title={block.hash}>{fmt.shortHash(block.hash)}</div>
                   <button onClick={() => copyHash(block.hash)} className="text-slate-500 hover:text-white flex-shrink-0 transition-colors">
                     <Copy className="w-3 h-3" />
                   </button>
@@ -121,7 +192,7 @@ export default function Blockchain() {
               </div>
               <div className="p-3 rounded-xl bg-white/3">
                 <div className="text-slate-500 text-xs font-medium mb-1">Previous Hash</div>
-                <div className="hash-text truncate">{block.previous_hash}</div>
+                <div className="hash-text truncate" title={block.previous_hash}>{fmt.shortHash(block.previous_hash)}</div>
               </div>
             </div>
 

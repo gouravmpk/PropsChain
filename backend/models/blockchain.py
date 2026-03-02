@@ -13,6 +13,7 @@ class TransactionType(str, Enum):
     STATUS_UPDATE = "STATUS_UPDATE"              # e.g. "DISPUTED", "ENCUMBERED"
     FRACTIONAL_MINT = "FRACTIONAL_MINT"          # Fractional tokens created
     FRACTIONAL_TRANSFER = "FRACTIONAL_TRANSFER"  # Token sold to investor
+    FRACTIONAL_REDEEM = "FRACTIONAL_REDEEM"      # Token holder exits / sells back
 
 
 # ---------------------------------------------------------------------------

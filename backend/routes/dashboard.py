@@ -28,29 +28,31 @@ def _serialize(doc: dict) -> dict:
     summary="Get real-time PropChain platform statistics",
 )
 async def dashboard_stats():
-    # Properties
-    all_props = [_serialize(p) async for p in properties_collection.find()]
-    verified = [p for p in all_props if p.get("status") == "Verified"]
-    fractional_props = [p for p in all_props if p.get("fractional_enabled")]
-    total_value = sum(p.get("market_value", 0) for p in all_props)
+    # Properties — DB-level aggregation avoids loading all docs into memory
+    total_props = await properties_collection.count_documents({})
+    verified_count = await properties_collection.count_documents({"status": "Verified"})
+    fractional_count = await properties_collection.count_documents({"fractional_enabled": True})
 
-    # Transactions
+    value_agg = await properties_collection.aggregate([
+        {"$group": {"_id": None, "total": {"$sum": "$market_value"}}}
+    ]).to_list(1)
+    total_value = value_agg[0]["total"] if value_agg else 0
+
+    cities_list = await properties_collection.distinct("city")
+    cities = set(c for c in cities_list if c)
+
+    # Transactions & blocks
     total_txns = await transactions_collection.count_documents({})
-
-    # Blockchain blocks
     total_blocks = await blockchain_collection.count_documents({})
 
-    # Fractional invested
-    all_holdings = [_serialize(h) async for h in fractional_collection.find()]
-    total_invested = sum(h.get("invested", 0) for h in all_holdings)
+    # Fractional holdings — aggregate for invested total and distinct investor emails
+    holdings_agg = await fractional_collection.aggregate([
+        {"$group": {"_id": None, "total_invested": {"$sum": "$invested"}, "emails": {"$addToSet": "$email"}}}
+    ]).to_list(1)
+    total_invested = holdings_agg[0]["total_invested"] if holdings_agg else 0
+    investors = set(e for e in (holdings_agg[0]["emails"] if holdings_agg else []) if e)
 
-    # Unique investors
-    investors = set(h.get("email") for h in all_holdings if h.get("email"))
-
-    # Cities
-    cities = set(p.get("city") for p in all_props if p.get("city"))
-
-    # AI verifications (doc_verification blocks)
+    # AI verifications
     verifications = await blockchain_collection.count_documents(
         {"transaction_type": "DOCUMENT_VERIFICATION"}
     )
@@ -59,13 +61,13 @@ async def dashboard_stats():
     )
 
     return {
-        "total_properties": len(all_props),
-        "verified_properties": len(verified),
-        "pending_properties": len(all_props) - len(verified),
+        "total_properties": total_props,
+        "verified_properties": verified_count,
+        "pending_properties": total_props - verified_count,
         "total_market_value": total_value,
         "blockchain_blocks": total_blocks,
         "total_transactions": total_txns,
-        "fractional_properties": len(fractional_props),
+        "fractional_properties": fractional_count,
         "total_fractional_invested": total_invested,
         "verifications_performed": verifications,
         "fraud_prevented": fraud_prevented,

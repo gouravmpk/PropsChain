@@ -9,9 +9,10 @@ POST   /properties/{id}/enable-fractional  — tokenise property
 POST   /fractional/invest             — buy fractional tokens
 """
 
-import uuid
-import random
+import re
+import secrets
 import string
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -55,9 +56,21 @@ class FractionalInvestment(BaseModel):
     investor_email: str
 
 
+class FractionalSell(BaseModel):
+    property_id: str
+    investor_email: str
+    tokens_to_sell: int
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _gen_property_id() -> str:
-    return "PROP-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    alphabet = string.ascii_uppercase + string.digits
+    return "PROP-" + "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+def _escape_regex(value: str) -> str:
+    """Escape user input before using in MongoDB $regex to prevent injection."""
+    return re.escape(value)
 
 
 def _serialize(doc: dict) -> dict:
@@ -78,11 +91,11 @@ async def list_properties(
 ):
     query: dict = {}
     if city:
-        query["city"] = {"$regex": city, "$options": "i"}
+        query["city"] = {"$regex": _escape_regex(city), "$options": "i"}
     if status:
-        query["status"] = {"$regex": status, "$options": "i"}
+        query["status"] = {"$regex": _escape_regex(status), "$options": "i"}
     if prop_type:
-        query["property_type"] = {"$regex": prop_type, "$options": "i"}
+        query["property_type"] = {"$regex": _escape_regex(prop_type), "$options": "i"}
 
     cursor = properties_collection.find(query).sort("registered_at", -1)
     props = [_serialize(p) async for p in cursor]
@@ -280,7 +293,7 @@ async def invest_fractional(inv: FractionalInvestment):
     if not prop or not prop.get("fractional_enabled"):
         raise HTTPException(status_code=400, detail="Property not available for fractional investment")
 
-    tokens_to_buy = int((inv.fraction_percent / 100) * prop["total_tokens"])
+    tokens_to_buy = round((inv.fraction_percent / 100) * prop["total_tokens"])
     if tokens_to_buy < 1:
         raise HTTPException(status_code=400, detail="Fraction too small — minimum 1 token")
     if tokens_to_buy > prop["available_tokens"]:
@@ -296,7 +309,7 @@ async def invest_fractional(inv: FractionalInvestment):
             "tokens_purchased": tokens_to_buy,
             "amount_paid": amount,
             "from_holder": prop["owner_name"],
-            "to_holder": inv.investor_email.split("@")[0].title(),
+            "to_holder": inv.investor_email.split("@")[0].title() if "@" in inv.investor_email else inv.investor_email,
         },
     )
 
@@ -307,7 +320,7 @@ async def invest_fractional(inv: FractionalInvestment):
 
     holder = {
         "property_id": inv.property_id,
-        "investor": inv.investor_email.split("@")[0].title(),
+        "investor": inv.investor_email.split("@")[0].title() if "@" in inv.investor_email else inv.investor_email,
         "email": inv.investor_email,
         "tokens": tokens_to_buy,
         "invested": amount,
@@ -332,5 +345,80 @@ async def invest_fractional(inv: FractionalInvestment):
         "message": "Investment successful",
         "tokens": tokens_to_buy,
         "amount": amount,
+        "block": {"hash": block["hash"], "index": block["block_index"]},
+    }
+
+
+@router.post(
+    "/fractional/sell",
+    summary="Sell fractional tokens back (structured exit)",
+)
+async def sell_fractional(sell: FractionalSell):
+    prop = await properties_collection.find_one({"id": sell.property_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    holder = await fractional_collection.find_one({
+        "property_id": sell.property_id,
+        "email": sell.investor_email,
+    })
+    if not holder:
+        raise HTTPException(status_code=404, detail="No holding found for this investor")
+
+    if sell.tokens_to_sell < 1:
+        raise HTTPException(status_code=400, detail="Must sell at least 1 token")
+    if sell.tokens_to_sell > holder["tokens"]:
+        raise HTTPException(status_code=400, detail=f"You only hold {holder['tokens']} tokens")
+
+    refund = sell.tokens_to_sell * prop["token_price"]
+
+    block = await add_transaction(
+        property_id=sell.property_id,
+        transaction_type=TransactionType.FRACTIONAL_REDEEM,
+        data={
+            "investor_email": sell.investor_email,
+            "tokens_redeemed": sell.tokens_to_sell,
+            "refund_amount": refund,
+            "holder_name": holder["investor"],
+        },
+    )
+
+    # Update or remove holding
+    remaining = holder["tokens"] - sell.tokens_to_sell
+    if remaining == 0:
+        await fractional_collection.delete_one({"_id": holder["_id"]})
+    else:
+        await fractional_collection.update_one(
+            {"_id": holder["_id"]},
+            {"$set": {
+                "tokens": remaining,
+                "invested": remaining * prop["token_price"],
+            }},
+        )
+
+    # Return tokens to pool
+    await properties_collection.update_one(
+        {"id": sell.property_id},
+        {"$inc": {"available_tokens": sell.tokens_to_sell}},
+    )
+
+    txn = {
+        "id": str(uuid.uuid4()),
+        "type": "FRACTIONAL_REDEEM",
+        "property_id": sell.property_id,
+        "from": sell.investor_email,
+        "to": prop["owner_name"],
+        "amount": refund,
+        "timestamp": datetime.utcnow().isoformat(),
+        "block_hash": block["hash"],
+        "status": "Confirmed",
+    }
+    await transactions_collection.insert_one(txn)
+
+    return {
+        "message": "Tokens sold successfully",
+        "tokens_sold": sell.tokens_to_sell,
+        "refund": refund,
+        "remaining_tokens": remaining,
         "block": {"hash": block["hash"], "index": block["block_index"]},
     }

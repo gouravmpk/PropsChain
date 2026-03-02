@@ -15,6 +15,8 @@ import AIVerification from './pages/AIVerification'
 import CrossVerify from './pages/CrossVerify'
 import Blockchain from './pages/Blockchain'
 import Transactions from './pages/Transactions'
+import Portfolio from './pages/Portfolio'
+import Profile from './pages/Profile'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated } = useAuth()
@@ -48,6 +50,8 @@ export default function App() {
             <Route path="cross-verify" element={<CrossVerify />} />
             <Route path="blockchain" element={<Blockchain />} />
             <Route path="transactions" element={<Transactions />} />
+            <Route path="portfolio" element={<Portfolio />} />
+            <Route path="profile" element={<Profile />} />
           </Route>
         </Routes>
       </BrowserRouter>
