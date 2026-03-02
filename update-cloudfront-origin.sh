@@ -19,9 +19,10 @@ if [[ -z "$FARGATE_IP" ]] || [[ -z "$CF_DIST_ID" ]]; then
   exit 1
 fi
 
-BACKEND_DOMAIN="${FARGATE_IP}:8000"
+# Domain name without port (CloudFront specifies port separately)
+BACKEND_DOMAIN="${FARGATE_IP}"
 
-echo "📡 Updating CloudFront origin to: $BACKEND_DOMAIN"
+echo "📡 Updating CloudFront origin to: $BACKEND_DOMAIN:8000"
 
 # Get current distribution config
 DIST_CONFIG=$(aws cloudfront get-distribution-config \
@@ -50,4 +51,4 @@ aws cloudfront update-distribution \
   --region "$AWS_REGION" \
   --output json > /dev/null
 
-echo "✅ CloudFront origin updated"
+echo "✅ CloudFront origin updated to $BACKEND_DOMAIN"

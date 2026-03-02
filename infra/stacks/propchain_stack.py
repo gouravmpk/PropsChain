@@ -209,8 +209,9 @@ class PropChainStack(Stack):
         # ──────────────────────────────────────────────────────────────────────
         
         # Custom origin for backend (IP will be updated by deploy script)
+        # Note: Domain name should NOT include port (CloudFront adds it separately)
         backend_origin = origins.HttpOrigin(
-            "placeholder-ip.local:8000",  # Placeholder - deploy script updates this
+            "placeholder-ip.local",  # Placeholder - deploy script updates this to actual IP
             https_port=8000,
             protocol_policy=cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
         )
