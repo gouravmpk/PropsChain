@@ -11,6 +11,7 @@ from routes.auth import router as auth_router
 from routes.properties import router as properties_router
 from routes.marketplace import router as marketplace_router
 from routes.dashboard import router as dashboard_router
+from routes.deals import router as deals_router
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +106,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(properties_router, prefix="/api")
 app.include_router(marketplace_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
+app.include_router(deals_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

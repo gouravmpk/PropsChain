@@ -19,9 +19,16 @@ API.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
+      const url = error.config?.url || ''
+      const isAuthProbe = url.includes('/auth/me')
+      const alreadyOnAuthPage = window.location.pathname.startsWith('/login') ||
+        window.location.pathname.startsWith('/register') ||
+        window.location.pathname === '/'
       localStorage.removeItem('propchain_token')
       localStorage.removeItem('propchain_user')
-      window.location.href = '/login'
+      if (!isAuthProbe && !alreadyOnAuthPage) {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

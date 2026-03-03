@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   Building2, MapPin, Shield, Link2, ArrowLeft, CheckCircle2, Clock,
   AlertTriangle, Users, TrendingUp, FileText, Copy, Zap, ArrowRight,
-  ArrowLeftRight, Coins, X, ShoppingCart
+  ArrowLeftRight, Coins, X, ShoppingCart, Handshake, Calculator
 } from 'lucide-react'
 
 export default function PropertyDetail() {
@@ -32,6 +32,18 @@ export default function PropertyDetail() {
   const [showBuy, setShowBuy] = useState(false)
   const [buyAadhaar, setBuyAadhaar] = useState('')
   const [buying, setBuying] = useState(false)
+
+  // Deal / Negotiation modal
+  const [showOffer, setShowOffer] = useState(false)
+  const [offerForm, setOfferForm] = useState({
+    buyer_aadhaar: '',
+    negotiated_price: '',
+    advance_amount: '',
+    installments_total: '6',
+    message: '',
+    payment_mode: 'installments', // 'installments' | 'lump_sum'
+  })
+  const [submittingOffer, setSubmittingOffer] = useState(false)
 
   useEffect(() => {
     Promise.all([API.get(`/properties/${id}`), API.get(`/transactions/${id}`)]).then(([p, t]) => {
@@ -108,6 +120,38 @@ export default function PropertyDetail() {
     } finally { setBuying(false) }
   }
 
+  const makeOffer = async () => {
+    if (!offerForm.buyer_aadhaar.trim()) return toast.error('Enter your Aadhaar number')
+    const negPrice = parseFloat(offerForm.negotiated_price)
+    const advance  = parseFloat(offerForm.advance_amount)
+    const isLumpSum = offerForm.payment_mode === 'lump_sum'
+    const months   = isLumpSum ? 1 : parseInt(offerForm.installments_total)
+    if (!negPrice || negPrice <= 0) return toast.error('Enter a valid negotiated price')
+    if (!advance  || advance  <= 0) return toast.error('Enter a valid advance amount')
+    if (advance >= negPrice)         return toast.error('Advance must be less than negotiated price')
+    if (!months   || months   < 1)  return toast.error('Enter a valid number of installment months')
+
+    setSubmittingOffer(true)
+    try {
+      const { data } = await API.post('/deals', {
+        property_id: id,
+        buyer_aadhaar: offerForm.buyer_aadhaar.trim(),
+        negotiated_price: negPrice,
+        advance_amount: advance,
+        installments_total: months,
+        message: offerForm.message || undefined,
+      })
+      const successMsg = isLumpSum
+        ? `Offer submitted! Pay ₹${fmt.currency(advance)} advance, then clear ₹${fmt.currency(negPrice - advance)} to complete.`
+        : `Offer submitted! Monthly EMI: ${fmt.currency(data.monthly_emi)}`
+      toast.success(successMsg)
+      setShowOffer(false)
+      setOfferForm({ buyer_aadhaar: '', negotiated_price: '', advance_amount: '', installments_total: '6', message: '', payment_mode: 'installments' })
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to submit offer')
+    } finally { setSubmittingOffer(false) }
+  }
+
   const isOwner = user?.name?.toLowerCase() === prop?.owner_name?.toLowerCase()
 
   if (loading) return (
@@ -128,6 +172,216 @@ export default function PropertyDetail() {
 
   return (
     <div className="space-y-6 max-w-6xl">
+      {/* Deal / Offer Negotiation Modal */}
+      {showOffer && prop && (() => {
+        const negP    = parseFloat(offerForm.negotiated_price) || 0
+        const adv     = parseFloat(offerForm.advance_amount)  || 0
+        const isLump  = offerForm.payment_mode === 'lump_sum'
+        const mths    = isLump ? 1 : (parseInt(offerForm.installments_total) || 1)
+        const emi     = negP > adv && mths > 0 ? Math.round((negP - adv) / mths) : 0
+        const remaining = negP > adv ? Math.round(negP - adv) : 0
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 overflow-y-auto py-6">
+            <div className="glass-card w-full max-w-lg border border-violet-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-white font-bold text-lg flex items-center gap-2">
+                  <Handshake className="w-5 h-5 text-violet-400" /> Negotiate a Deal
+                </h2>
+                <button onClick={() => setShowOffer(false)} className="text-slate-400 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Asking price context */}
+              <div className="p-3 rounded-xl bg-white/3 border border-white/8 mb-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Listed Price</span>
+                  <span className="text-white font-bold">{fmt.currency(prop.market_value)}</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">{prop.title} · {prop.city}, {prop.state}</div>
+              </div>
+
+              {/* ── Step 1: Payment Mode ── */}
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wide">How do you want to pay?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setOfferForm(f => ({ ...f, payment_mode: 'installments' }))}
+                    className={`rounded-xl border p-3 text-left transition-all ${
+                      !isLump
+                        ? 'border-violet-500/60 bg-violet-500/12 ring-1 ring-violet-500/40'
+                        : 'border-white/10 bg-white/3 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        !isLump ? 'border-violet-400' : 'border-slate-500'
+                      }`}>
+                        {!isLump && <div className="w-1.5 h-1.5 rounded-full bg-violet-400" />}
+                      </div>
+                      <span className={`text-sm font-bold ${!isLump ? 'text-violet-300' : 'text-slate-400'}`}>Monthly EMIs</span>
+                    </div>
+                    <p className="text-xs text-slate-500 pl-5">Pay advance to book, then clear the rest in monthly installments</p>
+                  </button>
+
+                  <button
+                    onClick={() => setOfferForm(f => ({ ...f, payment_mode: 'lump_sum' }))}
+                    className={`rounded-xl border p-3 text-left transition-all ${
+                      isLump
+                        ? 'border-emerald-500/60 bg-emerald-500/10 ring-1 ring-emerald-500/40'
+                        : 'border-white/10 bg-white/3 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        isLump ? 'border-emerald-400' : 'border-slate-500'
+                      }`}>
+                        {isLump && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                      </div>
+                      <span className={`text-sm font-bold ${isLump ? 'text-emerald-300' : 'text-slate-400'}`}>Advance + Pay Full</span>
+                    </div>
+                    <p className="text-xs text-slate-500 pl-5">Pay advance to book, then pay the remaining balance in one shot</p>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {/* Buyer identity */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Your Name</label>
+                    <input value={user?.name} disabled className="input-field text-sm opacity-60 cursor-not-allowed" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Your Aadhaar *</label>
+                    <input
+                      value={offerForm.buyer_aadhaar}
+                      onChange={e => setOfferForm(f => ({ ...f, buyer_aadhaar: e.target.value }))}
+                      placeholder="XXXX-XXXX-XXXX"
+                      className="input-field text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Negotiation price + advance */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Your Offer Price (₹) *</label>
+                    <input
+                      type="number"
+                      value={offerForm.negotiated_price}
+                      onChange={e => setOfferForm(f => ({ ...f, negotiated_price: e.target.value }))}
+                      placeholder={String(Math.round(prop.market_value * 0.9))}
+                      className="input-field text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Advance / Booking Amount (₹) *</label>
+                    <input
+                      type="number"
+                      value={offerForm.advance_amount}
+                      onChange={e => setOfferForm(f => ({ ...f, advance_amount: e.target.value }))}
+                      placeholder={String(Math.round(prop.market_value * 0.1))}
+                      className="input-field text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Installments — only shown for EMI mode */}
+                {!isLump && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Number of Monthly Installments *</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range" min="1" max="120" step="1"
+                        value={offerForm.installments_total}
+                        onChange={e => setOfferForm(f => ({ ...f, installments_total: e.target.value }))}
+                        className="flex-1 accent-violet-500"
+                      />
+                      <span className="text-white font-bold w-14 text-center">{offerForm.installments_total} mo</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500 mt-1"><span>1 month</span><span>120 months</span></div>
+                  </div>
+                )}
+
+                {/* Payment breakdown preview */}
+                {negP > 0 && adv > 0 && adv < negP && (
+                  <div className={`rounded-xl border p-3 ${
+                    isLump ? 'bg-emerald-500/6 border-emerald-500/20' : 'bg-violet-500/6 border-violet-500/20'
+                  }`}>
+                    <p className="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">Payment Breakdown</p>
+                    {isLump ? (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-white/5 rounded-lg p-2.5 text-center">
+                          <div className="text-emerald-300 font-bold text-sm">{fmt.currency(adv)}</div>
+                          <div className="text-slate-500 text-xs">Advance (book now)</div>
+                        </div>
+                        <div className="text-slate-500 text-xs font-bold">→ then →</div>
+                        <div className="flex-1 bg-white/5 rounded-lg p-2.5 text-center">
+                          <div className="text-emerald-300 font-bold text-sm">{fmt.currency(remaining)}</div>
+                          <div className="text-slate-500 text-xs">Remaining (one payment)</div>
+                        </div>
+                      </div>
+                    ) : emi > 0 ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                          <div className="text-violet-300 font-bold text-sm">{fmt.currency(adv)}</div>
+                          <div className="text-slate-500 text-xs">Advance</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                          <div className="text-violet-300 font-bold text-sm">{fmt.currency(emi)}</div>
+                          <div className="text-slate-500 text-xs">Monthly EMI</div>
+                        </div>
+                        <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                          <div className="text-violet-300 font-bold text-sm">{mths} mo</div>
+                          <div className="text-slate-500 text-xs">Duration</div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Message to Seller (optional)</label>
+                  <textarea
+                    value={offerForm.message}
+                    onChange={e => setOfferForm(f => ({ ...f, message: e.target.value }))}
+                    placeholder="Hi, I'm interested in this property and would like to negotiate..."
+                    rows={2}
+                    className="input-field text-sm resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 rounded-xl bg-indigo-500/8 border border-indigo-500/20 text-xs text-indigo-300 mb-5">
+                {isLump
+                  ? `📋 Once the seller accepts: pay the advance to book the property, then pay the full remaining balance of ${remaining > 0 ? fmt.currency(remaining) : '…'} in one final payment. Ownership transfers automatically.`
+                  : `📋 Once the seller accepts: pay the advance, then ${offerForm.installments_total} monthly installments of ${emi > 0 ? fmt.currency(emi) : '…'}. Ownership transfers automatically when fully paid.`
+                }
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setShowOffer(false)} className="btn-secondary flex-1">Cancel</button>
+                <button
+                  onClick={makeOffer}
+                  disabled={submittingOffer}
+                  className={`flex-1 flex items-center justify-center gap-2 text-white font-bold py-2.5 rounded-xl transition-all disabled:opacity-50 text-sm shadow-lg ${
+                    isLump
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-emerald-500/20'
+                      : 'bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-400 hover:to-purple-400 shadow-violet-500/20'
+                  }`}
+                >
+                  {submittingOffer
+                    ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Submitting...</>
+                    : <><Handshake className="w-4 h-4" />{isLump ? 'Submit Offer (Advance + Full)' : 'Submit Offer'}</>
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Transfer Modal */}
       {showTransfer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -306,11 +560,18 @@ export default function PropertyDetail() {
             <div className="text-3xl font-black text-white">{fmt.currency(prop.market_value)}</div>
             <div className="text-slate-400 text-sm">{fmt.number(prop.area_sqft)} sq.ft</div>
             {!isOwner && (
-              <button
-                onClick={() => setShowBuy(true)}
-                className="mt-3 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/25 transition-all">
-                <ShoppingCart className="w-3.5 h-3.5" /> Buy Property
-              </button>
+              <div className="flex gap-2 mt-3 justify-end flex-wrap">
+                <button
+                  onClick={() => setShowBuy(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/25 transition-all">
+                  <ShoppingCart className="w-3.5 h-3.5" /> Buy Property
+                </button>
+                <button
+                  onClick={() => setShowOffer(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/20 hover:bg-violet-500/25 transition-all">
+                  <Handshake className="w-3.5 h-3.5" /> Negotiate
+                </button>
+              </div>
             )}
             {isOwner && (
               <div className="flex gap-2 mt-3 justify-end">
@@ -518,10 +779,16 @@ export default function PropertyDetail() {
               {isOwner ? (
                 <p className="text-slate-500 text-xs text-center">You own this property</p>
               ) : (
-                <button onClick={() => setShowBuy(true)}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold py-3 rounded-xl transition-all text-sm shadow-lg shadow-emerald-500/20">
-                  <ShoppingCart className="w-4 h-4" /> Buy Now
-                </button>
+                <div className="space-y-2">
+                  <button onClick={() => setShowBuy(true)}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold py-3 rounded-xl transition-all text-sm shadow-lg shadow-emerald-500/20">
+                    <ShoppingCart className="w-4 h-4" /> Buy Now
+                  </button>
+                  <button onClick={() => setShowOffer(true)}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-violet-500/10 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 hover:border-violet-400/40 transition-all">
+                    <Handshake className="w-3.5 h-3.5" /> Negotiate a Deal
+                  </button>
+                </div>
               )}
             </div>
           )}

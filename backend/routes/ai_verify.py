@@ -163,7 +163,7 @@ async def verify_property_document(
     result["fraud_indicators"] = result.get("flags", [])
     result["filename"] = result["file_name"]
     result["size_kb"] = result["file_size_kb"]
-    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Bedrock Nova Pro)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
+    result["ml_model"] = "PropChain-FraudNet v2.1 (AWS Bedrock Nova Lite)" if USE_AWS else "PropChain-FraudNet v2.1 (Mock)"
 
     return result
 
@@ -300,7 +300,7 @@ async def get_ai_mode():
         "bedrock": USE_AWS,
         "model": BEDROCK_MODEL if USE_AWS else "mock",
         "message": (
-            f"Using AWS Bedrock ({BEDROCK_MODEL}) — Nova Pro reads documents directly as images + fraud analysis in one call"
+            f"Using AWS Bedrock ({BEDROCK_MODEL}) — Nova Lite reads documents directly as images + fraud analysis in one call"
             if USE_AWS
             else "Running in mock mode — set AWS_ACCESS_KEY_ID in .env to enable real AI"
         ),

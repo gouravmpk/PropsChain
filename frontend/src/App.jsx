@@ -18,9 +18,36 @@ import Transactions from './pages/Transactions'
 import Portfolio from './pages/Portfolio'
 import Profile from './pages/Profile'
 
+// Shows a full-screen spinner while the stored token is being validated server-side.
+// Prevents a flash of the login page for users who are already authenticated.
+function AuthGate({ children }) {
+  const { loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-screen gradient-bg flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <svg className="animate-spin w-10 h-10 text-indigo-400" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-slate-400 text-sm">Verifying session…</span>
+        </div>
+      </div>
+    )
+  }
+  return children
+}
+
+// Redirects unauthenticated users to /login.
 function PrivateRoute({ children }) {
   const { isAuthenticated } = useAuth()
   return isAuthenticated ? children : <Navigate to="/login" replace />
+}
+
+// Redirects already-authenticated users away from /login and /register.
+function PublicOnlyRoute({ children }) {
+  const { isAuthenticated } = useAuth()
+  return isAuthenticated ? <Navigate to="/app/dashboard" replace /> : children
 }
 
 export default function App() {
@@ -35,10 +62,11 @@ export default function App() {
             error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
           }}
         />
+        <AuthGate>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+          <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
           <Route path="/app" element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
@@ -54,6 +82,7 @@ export default function App() {
             <Route path="profile" element={<Profile />} />
           </Route>
         </Routes>
+        </AuthGate>
       </BrowserRouter>
     </AuthProvider>
   )

@@ -21,6 +21,7 @@ properties_collection = db["properties"]
 users_collection = db["users"]
 transactions_collection = db["transactions"]
 fractional_collection = db["fractional_holdings"]
+deals_collection = db["deals"]
 
 
 async def init_db():
@@ -51,6 +52,15 @@ async def init_db():
     await users_collection.create_indexes(
         [
             IndexModel([("email", ASCENDING)], unique=True, name="unique_email"),
+        ]
+    )
+
+    await deals_collection.create_indexes(
+        [
+            IndexModel([("id", ASCENDING)], unique=True, name="unique_deal_id"),
+            IndexModel([("property_id", ASCENDING)], name="idx_deal_property"),
+            IndexModel([("buyer_email", ASCENDING)], name="idx_deal_buyer"),
+            IndexModel([("seller_email", ASCENDING)], name="idx_deal_seller"),
         ]
     )
 

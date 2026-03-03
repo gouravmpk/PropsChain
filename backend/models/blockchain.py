@@ -14,6 +14,10 @@ class TransactionType(str, Enum):
     FRACTIONAL_MINT = "FRACTIONAL_MINT"          # Fractional tokens created
     FRACTIONAL_TRANSFER = "FRACTIONAL_TRANSFER"  # Token sold to investor
     FRACTIONAL_REDEEM = "FRACTIONAL_REDEEM"      # Token holder exits / sells back
+    # Deal / Negotiation / Installment Payment lifecycle
+    DEAL_INITIATED = "DEAL_INITIATED"            # Buyer makes an offer at negotiated price
+    DEAL_ACCEPTED = "DEAL_ACCEPTED"              # Seller accepts the offer
+    INSTALLMENT_PAYMENT = "INSTALLMENT_PAYMENT"  # Advance or monthly EMI recorded on-chain
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,8 @@ import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import {
   Building2, TrendingUp, MapPin, CheckCircle2, Clock,
-  AlertTriangle, ArrowRight, Wallet, Users, Eye, X, LogOut
+  AlertTriangle, ArrowRight, Wallet, Users, Eye, X, LogOut,
+  Handshake, ChevronsRight, BadgeCheck
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
@@ -24,6 +25,12 @@ export default function Portfolio() {
   const [sellTarget, setSellTarget] = useState(null)   // holding object
   const [sellQty, setSellQty] = useState(1)
   const [selling, setSelling] = useState(false)
+
+  // Deals
+  const [deals, setDeals] = useState([])
+  const [acceptingDealId, setAcceptingDealId] = useState(null)
+  const [payingDealId, setPayingDealId] = useState(null)
+  const [payingFullDealId, setPayingFullDealId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -53,6 +60,14 @@ export default function Portfolio() {
     } finally {
       setLoading(false)
     }
+
+    // Load deals separately (non-blocking)
+    try {
+      const { data: dealData } = await API.get('/deals/my')
+      setDeals(dealData || [])
+    } catch {
+      setDeals([])
+    }
   }, [user])
 
   useEffect(() => { load().catch(() => setLoading(false)) }, [load])
@@ -77,6 +92,47 @@ export default function Portfolio() {
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Sale failed')
     } finally { setSelling(false) }
+  }
+
+  const acceptDeal = async (dealId) => {
+    setAcceptingDealId(dealId)
+    try {
+      await API.post(`/deals/${dealId}/accept`)
+      toast.success('Deal accepted! The buyer can now pay the advance.')
+      const { data } = await API.get('/deals/my')
+      setDeals(data || [])
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to accept deal')
+    } finally { setAcceptingDealId(null) }
+  }
+
+  const payDeal = async (dealId) => {
+    setPayingDealId(dealId)
+    try {
+      const { data } = await API.post(`/deals/${dealId}/pay`)
+      const msg = data.ownership_transferred
+        ? `🎉 Full payment complete! Ownership transferred to you.`
+        : `Payment recorded. Remaining: ${fmt.currency(data.remaining)}`
+      toast.success(msg)
+      const { data: d2 } = await API.get('/deals/my')
+      setDeals(d2 || [])
+      if (data.ownership_transferred) await load()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Payment failed')
+    } finally { setPayingDealId(null) }
+  }
+
+  const payFullDeal = async (dealId) => {
+    setPayingFullDealId(dealId)
+    try {
+      const { data } = await API.post(`/deals/${dealId}/pay`, { pay_full: true })
+      toast.success(`🎉 Full balance cleared! Ownership transferred to you.`)
+      const { data: d2 } = await API.get('/deals/my')
+      setDeals(d2 || [])
+      await load()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Payment failed')
+    } finally { setPayingFullDealId(null) }
   }
 
   const totalPropertyValue = properties.reduce((s, p) => s + (p.market_value || 0), 0)
@@ -322,6 +378,157 @@ export default function Portfolio() {
                       className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl py-2.5 transition-all">
                       <LogOut className="w-4 h-4" /> Sell
                     </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* My Deals */}
+      <div>
+        <h2 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
+          <Handshake className="w-5 h-5 text-violet-400" /> My Deals
+        </h2>
+        {deals.length === 0 ? (
+          <div className="glass-card text-center py-10">
+            <Handshake className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+            <p className="text-slate-400 text-sm">No active deals. Find a property and click "Negotiate" to start a deal.</p>
+            <Link to="/app/properties" className="btn-primary inline-flex items-center gap-2 mt-4 text-sm px-5 py-2.5">
+              Browse Properties <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {deals.map(deal => {
+              const isBuyer  = deal.buyer_email === user?.email
+              const isSeller = !isBuyer
+              const progress = deal.negotiated_price > 0
+                ? Math.min(Math.round((deal.total_paid / deal.negotiated_price) * 100), 100)
+                : 0
+              const paidEMIs = deal.payments?.filter(p => p.type === 'EMI').length || 0
+              const statusInfo = {
+                PENDING_SELLER: { label: 'Awaiting Seller', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+                ACCEPTED:       { label: 'Accepted',        cls: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+                IN_PROGRESS:    { label: 'In Progress',     cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+                COMPLETED:      { label: 'Completed ✅',    cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+                CANCELLED:      { label: 'Cancelled',       cls: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+              }[deal.status] || { label: deal.status, cls: 'text-slate-400 bg-white/5 border-white/10' }
+              const canPay    = isBuyer  && ['ACCEPTED', 'IN_PROGRESS'].includes(deal.status)
+              const canAccept = isSeller && deal.status === 'PENDING_SELLER'
+              const isAdvancePending = deal.payments?.length === 0
+              const nextPayLabel = isAdvancePending ? 'Pay Advance' : `Pay EMI #${paidEMIs + 1}`
+              const remaining = Math.round((deal.negotiated_price - deal.total_paid) * 100) / 100
+              const canPayFull = canPay && !isAdvancePending && remaining > 0
+
+              return (
+                <div key={deal.id} className="glass-card border border-violet-500/15 hover:border-violet-500/30 transition-all">
+                  {/* Header */}
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${statusInfo.cls}`}>
+                          {statusInfo.label}
+                        </span>
+                        <span className="text-xs text-slate-500">{isBuyer ? '🧑 You are Buyer' : '🏠 You are Seller'}</span>
+                        <span className="text-xs text-slate-600 font-mono">{deal.id}</span>
+                      </div>
+                      <h3 className="text-white font-bold">{deal.property_title}</h3>
+                      <p className="text-slate-400 text-xs">{deal.property_address}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-violet-300 font-bold text-lg">{fmt.currency(deal.negotiated_price)}</div>
+                      <div className="text-slate-500 text-xs line-through">{fmt.currency(deal.asking_price)} listed</div>
+                    </div>
+                  </div>
+
+                  {/* Key figures */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    {[
+                      { label: 'Advance',     value: fmt.currency(deal.advance_amount), color: 'text-white' },
+                      { label: 'Monthly EMI', value: fmt.currency(deal.monthly_emi),    color: 'text-white' },
+                      { label: 'Installments',value: `${paidEMIs}/${deal.installments_total}`, color: 'text-amber-400' },
+                      { label: 'Total Paid',  value: fmt.currency(deal.total_paid),     color: 'text-emerald-400' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-white/3 rounded-lg p-2.5 text-center">
+                        <div className={`font-bold text-sm ${color}`}>{value}</div>
+                        <div className="text-slate-500 text-xs">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Progress bar */}
+                  {deal.status !== 'CANCELLED' && (
+                    <div className="mb-4">
+                      <div className="flex justify-between text-xs text-slate-500 mb-1">
+                        <span>Payment Progress</span>
+                        <span className="font-semibold">{progress}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            progress >= 100
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                              : 'bg-gradient-to-r from-violet-500 to-purple-500'
+                          }`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Counterparty */}
+                  <p className="text-slate-500 text-xs mb-4">
+                    {isBuyer ? `Seller: ${deal.seller_name}` : `Buyer: ${deal.buyer_name} · ${deal.buyer_email}`}
+                    {deal.message && <span className="ml-2 italic text-slate-600">"{deal.message}"</span>}
+                  </p>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap gap-3">
+                    <Link
+                      to={`/app/properties/${deal.property_id}`}
+                      className="flex items-center gap-1.5 text-sm font-semibold text-violet-400 hover:text-violet-300 border border-violet-500/20 hover:border-violet-500/40 rounded-xl px-4 py-2 transition-all"
+                    >
+                      <Eye className="w-4 h-4" /> View Property
+                    </Link>
+                    {canAccept && (
+                      <button
+                        onClick={() => acceptDeal(deal.id)}
+                        disabled={acceptingDealId === deal.id}
+                        className="flex items-center gap-1.5 text-sm font-semibold bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white rounded-xl px-4 py-2 transition-all disabled:opacity-50"
+                      >
+                        {acceptingDealId === deal.id
+                          ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Accepting...</>
+                          : <><BadgeCheck className="w-4 h-4" /> Accept Deal</>
+                        }
+                      </button>
+                    )}
+                    {canPay && (
+                      <button
+                        onClick={() => payDeal(deal.id)}
+                        disabled={payingDealId === deal.id || payingFullDealId === deal.id}
+                        className="flex items-center gap-1.5 text-sm font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white rounded-xl px-4 py-2 transition-all disabled:opacity-50"
+                      >
+                        {payingDealId === deal.id
+                          ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Processing...</>
+                          : <><ChevronsRight className="w-4 h-4" />{nextPayLabel}</>
+                        }
+                      </button>
+                    )}
+                    {canPayFull && (
+                      <button
+                        onClick={() => payFullDeal(deal.id)}
+                        disabled={payingFullDealId === deal.id || payingDealId === deal.id}
+                        className="flex items-center gap-1.5 text-sm font-semibold bg-gradient-to-r from-violet-500 to-purple-500 hover:from-violet-400 hover:to-purple-400 text-white rounded-xl px-4 py-2 transition-all disabled:opacity-50"
+                        title={`Clear entire remaining balance of ${fmt.currency(remaining)}`}
+                      >
+                        {payingFullDealId === deal.id
+                          ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Processing...</>
+                          : <><Wallet className="w-4 h-4" />Pay Full ({fmt.currency(remaining)})</>
+                        }
+                      </button>
+                    )}
                   </div>
                 </div>
               )

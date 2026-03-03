@@ -9,6 +9,7 @@ POST   /properties/{id}/enable-fractional  — tokenise property
 POST   /fractional/invest             — buy fractional tokens
 """
 
+import random
 import re
 import secrets
 import string
@@ -17,7 +18,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from config.database import properties_collection, transactions_collection, fractional_collection
 from services.blockchain_service import mint_genesis, add_transaction
@@ -40,6 +41,29 @@ class PropertyCreate(BaseModel):
     owner_aadhaar: str
     survey_number: str
     description: str
+
+    @field_validator("area_sqft", "market_value", mode="before")
+    @classmethod
+    def must_be_positive_number(cls, v: object, info) -> float:
+        """Reject None, zero, and NaN — gives a clear 422 message instead of cryptic error."""
+        if v is None:
+            raise ValueError(f"{info.field_name} is required and must be a positive number")
+        try:
+            val = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"{info.field_name} must be a valid number")
+        if val != val:  # NaN check
+            raise ValueError(f"{info.field_name} must be a valid number")
+        if val <= 0:
+            raise ValueError(f"{info.field_name} must be greater than zero")
+        return val
+
+    @field_validator("title", "address", "city", "state", "pincode", "owner_name", "survey_number", mode="before")
+    @classmethod
+    def must_not_be_blank(cls, v: object, info) -> str:
+        if not v or not str(v).strip():
+            raise ValueError(f"{info.field_name} is required and cannot be empty")
+        return str(v).strip()
 
 
 class TransferProperty(BaseModel):

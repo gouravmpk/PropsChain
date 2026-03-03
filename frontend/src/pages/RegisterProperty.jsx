@@ -79,15 +79,59 @@ export default function RegisterProperty() {
   const docScore   = docResult ? (docResult.overall_score ?? Math.round((1 - (docResult.fraud_score || 0)) * 100)) : null
   const canProceed = docVerdict === 'AUTHENTIC' || docVerdict === 'SUSPICIOUS'
 
+  // ── Per-step validation ────────────────────────────────────────────────────
+  const validateStep = (s) => {
+    if (s === 0) {
+      if (!form.title.trim())         return 'Property title is required'
+      if (!form.survey_number.trim()) return 'Survey number is required'
+      const area = parseFloat(form.area_sqft)
+      if (!form.area_sqft || isNaN(area) || area <= 0) return 'Area must be a positive number'
+      const val = parseFloat(form.market_value)
+      if (!form.market_value || isNaN(val) || val <= 0) return 'Market value must be a positive number'
+    }
+    if (s === 1) {
+      if (!form.address.trim()) return 'Address is required'
+      if (!form.city.trim())    return 'City is required'
+      if (!form.state.trim())   return 'State is required'
+      if (!form.pincode.trim()) return 'PIN code is required'
+      if (!/^\d{6}$/.test(form.pincode.trim())) return 'PIN code must be 6 digits'
+    }
+    if (s === 2) {
+      if (!form.owner_name.trim())    return 'Owner name is required'
+      if (!form.owner_aadhaar.trim()) return 'Aadhaar number is required'
+    }
+    return null
+  }
+
+  const handleNext = () => {
+    const err = validateStep(step)
+    if (err) { toast.error(err); return }
+    setStep(s => s + 1)
+  }
+
   const submit = async () => {
+    // Final guard: re-validate all steps before sending
+    for (let s = 0; s < 3; s++) {
+      const err = validateStep(s)
+      if (err) { toast.error(err); setStep(s); return }
+    }
+    const area = parseFloat(form.area_sqft)
+    const val  = parseFloat(form.market_value)
+    if (isNaN(area) || area <= 0) { toast.error('Area must be a positive number'); setStep(0); return }
+    if (isNaN(val)  || val  <= 0) { toast.error('Market value must be a positive number'); setStep(0); return }
+
     setLoading(true)
     try {
-      const payload = { ...form, area_sqft: parseFloat(form.area_sqft), market_value: parseFloat(form.market_value) }
+      const payload = { ...form, area_sqft: area, market_value: val }
       const { data } = await API.post('/properties/register', payload)
       setRegistered(data)
       toast.success('Property registered on blockchain!')
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Registration failed')
+      const detail = err.response?.data?.detail
+      const msg = Array.isArray(detail)
+        ? detail.map(d => d.msg || d.message || JSON.stringify(d)).join(', ')
+        : detail || 'Registration failed'
+      toast.error(msg)
     } finally { setLoading(false) }
   }
 
@@ -385,7 +429,7 @@ export default function RegisterProperty() {
           )}
           {step < 4 ? (
             <button
-              onClick={() => setStep(s => s + 1)}
+              onClick={step === 3 ? (canProceed ? () => setStep(s => s + 1) : undefined) : handleNext}
               disabled={step === 3 && !canProceed}
               title={step === 3 && !canProceed ? 'Verify your document before proceeding' : ''}
               className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40 disabled:scale-100">

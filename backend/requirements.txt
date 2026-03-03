@@ -12,3 +12,7 @@ bcrypt==4.0.1
 anthropic>=0.40.0
 pymupdf>=1.24.0
 pillow>=10.0.0
+# Retry logic — exponential backoff on Bedrock ThrottlingException
+tenacity>=8.2.0
+# OpenAI fallback — activates when Bedrock is throttled/unavailable on demo day
+openai>=1.0.0

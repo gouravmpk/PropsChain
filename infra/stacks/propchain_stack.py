@@ -18,6 +18,7 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     CfnOutput,
+    aws_dynamodb as dynamodb,
     aws_ecr as ecr,
     aws_ecs as ecs,
     aws_iam as iam,
@@ -95,8 +96,14 @@ class PropChainStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=["bedrock:InvokeModel", "bedrock:Converse"],
                 resources=[
+                    # ap-south-1 — APAC inference profile
                     "arn:aws:bedrock:ap-south-1::foundation-model/apac.amazon.nova-pro-v1:0",
                     "arn:aws:bedrock:ap-south-1::foundation-model/amazon.nova-pro-v1:0",
+                    # us-east-1 — primary region (higher quota, recommended by AWS)
+                    "arn:aws:bedrock:us-east-1::foundation-model/us.amazon.nova-pro-v1:0",
+                    "arn:aws:bedrock:us-east-1::foundation-model/us.amazon.nova-lite-v1:0",
+                    "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0",
+                    "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0",
                 ],
             )
         )
@@ -139,8 +146,9 @@ class PropChainStack(Stack):
             image=ecs.ContainerImage.from_ecr_repository(backend_repo, tag="latest"),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="propchain"),
             environment={
-                "BEDROCK_REGION": "ap-south-1",
-                "BEDROCK_MODEL": "apac.amazon.nova-pro-v1:0",
+                "BEDROCK_REGION": "us-east-1",
+                "BEDROCK_MODEL": "us.amazon.nova-lite-v1:0",
+                "BEDROCK_CACHE_TABLE": "propchain-ai-cache",
                 "ENVIRONMENT": "production",
             },
             secrets={
@@ -199,7 +207,26 @@ class PropChainStack(Stack):
         )
 
         # ──────────────────────────────────────────────────────────────────────
-        # 7. CloudFront Distribution  
+        # 6.5 DynamoDB — Bedrock response cache
+        # Always-free tier: 25 GB · on-demand billing · 7-day TTL on cached items
+        # Saves model credits: hash(doc) checked before every Bedrock invocation
+        # ──────────────────────────────────────────────────────────────────────
+        cache_table = dynamodb.Table(
+            self,
+            "BedrockCacheTable",
+            table_name="propchain-ai-cache",
+            partition_key=dynamodb.Attribute(
+                name="file_hash",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            time_to_live_attribute="ttl",
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        cache_table.grant_read_write_data(task_role)
+
+        # ──────────────────────────────────────────────────────────────────────
+        # 7. CloudFront Distribution
         # Serves frontend from S3 + proxies /api/* to Fargate HTTP
         # ──────────────────────────────────────────────────────────────────────
         
@@ -226,7 +253,9 @@ class PropChainStack(Stack):
                     origin=backend_origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,  # Don't cache API responses
-                    origin_request_policy=cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+                    # ALL_VIEWER_EXCEPT_HOST_HEADER forwards Authorization header to Fargate.
+                    # CORS_S3_ORIGIN does NOT forward Authorization — causes 401 on all auth endpoints.
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                     allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                 )
             },
@@ -274,4 +303,8 @@ class PropChainStack(Stack):
         CfnOutput(self, "ECSClusterName",
             value=cluster.cluster_name,
             description="ECS cluster name - for deploy script",
+        )
+        CfnOutput(self, "BedrockCacheTableName",
+            value=cache_table.table_name,
+            description="DynamoDB Bedrock response cache — propchain-ai-cache",
         )
