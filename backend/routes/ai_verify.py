@@ -29,7 +29,7 @@ Upload a property document (PDF or image) for AI-powered fraud detection.
 
 **Pipeline:**
 1. SHA-256 hash computed from file bytes
-2. AWS Bedrock (Claude) directly reads the document — extracts fields + analyzes fraud in one call
+2. AWS Bedrock (Amazon Nova) directly reads the document — extracts fields + analyzes fraud in one call
 3. Rule-based checks (date validation, format checks, name consistency)
 4. Final fraud score computed (0.0 = clean, 1.0 = highly suspicious)
 5. Result optionally logged on-chain as a `DOCUMENT_VERIFICATION` block
@@ -193,7 +193,7 @@ def _build_checks(rule_checks: list) -> list:
     "/cross-verify",
     summary="Cross-document consistency check",
     description="""
-Upload **2–5 property documents** at once. Claude reads all of them in a single AI call and checks:
+Upload **2–5 property documents** at once. Nova reads all of them in a single AI call and checks:
 - Owner / party name consistency across all docs
 - Survey / plot number matches
 - Date logic (registration before transfer, possession dates)
@@ -291,7 +291,7 @@ async def cross_verify_property_documents(
 @router.get(
     "/mode",
     summary="Check AI verification mode",
-    description="Returns whether the service is using real AWS Bedrock (Claude vision) or mock simulation.",
+    description="Returns whether the service is using real AWS Bedrock (Amazon Nova vision) or mock simulation.",
     tags=["AI Document Verification"],
 )
 async def get_ai_mode():

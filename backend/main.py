@@ -12,6 +12,7 @@ from routes.properties import router as properties_router
 from routes.marketplace import router as marketplace_router
 from routes.dashboard import router as dashboard_router
 from routes.deals import router as deals_router
+from routes.registry import router as registry_router
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@ tags_metadata = [
         "name": "AI Document Verification",
         "description": (
             "Upload property documents (PDF/image) for AI-powered fraud detection. "
-            "Uses **AWS Bedrock (Claude)** to directly read the document, extract fields, and analyze for fraud. "
+            "Uses **AWS Bedrock (Amazon Nova Lite)** to directly read the document, extract fields, and analyze for fraud. "
             "Falls back to mock simulation if AWS credentials are not configured."
         ),
     },
@@ -107,6 +108,7 @@ app.include_router(properties_router, prefix="/api")
 app.include_router(marketplace_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(deals_router, prefix="/api")
+app.include_router(registry_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

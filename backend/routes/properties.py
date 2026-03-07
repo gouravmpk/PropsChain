@@ -167,7 +167,7 @@ async def register_property(prop: PropertyCreate):
 
     new_prop = {
         "id": prop_id,
-        **prop.dict(),
+        **prop.model_dump(),
         "owner_email": "",
         "status": status,
         "registered_at": registered_at,

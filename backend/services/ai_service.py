@@ -30,7 +30,7 @@ BEDROCK_FALLBACK_MODEL = os.getenv("BEDROCK_FALLBACK_MODEL", "us.amazon.nova-pro
 BEDROCK_CACHE_TABLE = os.getenv("BEDROCK_CACHE_TABLE", "propchain-ai-cache")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SECRETS_MANAGER_REGION = "ap-south-1"
-SECRET_NAME = "keys"
+SECRET_NAME = "propchain/config"
 
 
 def _load_credentials_from_secrets_manager() -> tuple[str, str] | tuple[None, None]:
@@ -554,10 +554,16 @@ async def verify_document(
     from services.fraud_rules import run_all_rules
     rule_results, rule_flags = run_all_rules(extracted_fields, document_type)
 
+    # ── Registry cross-check ──────────────────────────────────────────────────
+    from services.registry_service import registry_cross_check
+    registry_result = registry_cross_check(extracted_fields, document_type)
+    registry_flags = registry_result.get("registry_flags", [])
+    registry_penalty = registry_result.get("registry_penalty", 0.0)
+
     # ── Score aggregation ─────────────────────────────────────────────────────
     ai_score: float = ai_result.get("fraud_score", 0.0)
     rule_penalty = len(rule_flags) * 0.08
-    final_score = min(round(ai_score + rule_penalty, 3), 1.0)
+    final_score = min(round(ai_score + rule_penalty + registry_penalty, 3), 1.0)
 
     # ── Verdict ───────────────────────────────────────────────────────────────
     if final_score < 0.35:
@@ -572,7 +578,7 @@ async def verify_document(
 
     # ── Combine flags ─────────────────────────────────────────────────────────
     ai_flags = ai_result.get("fraud_indicators", [])
-    all_flags = list(dict.fromkeys(rule_flags + ai_flags))
+    all_flags = list(dict.fromkeys(registry_flags + rule_flags + ai_flags))
 
     # ── Extraction confidence ─────────────────────────────────────────────────
     confidences = [f["confidence"] for f in extracted_fields]
@@ -593,6 +599,7 @@ async def verify_document(
         "is_authentic": is_authentic,
         "flags": all_flags,
         "rule_checks": [r.model_dump() for r in rule_results],
+        "registry_checks": registry_result.get("registry_checks", []),
         "ai_explanation": ai_result.get("explanation", ""),
         "verified_by": (
             f"Amazon Nova Lite ({BEDROCK_MODEL}) · AWS Bedrock · {BEDROCK_REGION} [cached]" if mode == "aws-cached"

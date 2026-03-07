@@ -143,7 +143,7 @@ def check_missing_mandatory_fields(fields: dict, document_type: str) -> RuleChec
 
 
 def check_low_confidence_fields(extracted_fields: list) -> RuleCheckResult:
-    """Flag fields where Textract confidence < 70%."""
+    """Flag fields where AI extraction confidence < 70%."""
     low = [f"{f['key']} ({f['confidence']*100:.0f}%)" for f in extracted_fields if f.get("confidence", 1.0) < 0.70]
     passed = len(low) == 0
     return RuleCheckResult(
