@@ -17,7 +17,9 @@ const STATS = [
 ]
 
 const TEAM = [
-  { name: 'Muruganandham Selvamani', role: 'Team Leader', grad: 'from-indigo-500 to-purple-600' },
+  { name: 'Muruganandham Selvamani', role: 'Team Leader', grad: 'from-indigo-500 to-purple-600', photo: '/team/murugan.jpeg', linkedin: 'https://www.linkedin.com/in/muruganandham1802/' },
+  { name: 'Gourav Kadu', role: 'Full Stack Developer', grad: 'from-indigo-500 to-purple-600', photo: '/team/gourav.jpeg', linkedin: 'https://www.linkedin.com/in/gourav-kadu/' },
+  { name: 'Sayanto Roy', role: 'Full Stack Developer', grad: 'from-indigo-500 to-purple-600', photo: '/team/sayanto.jpeg', linkedin: 'https://www.linkedin.com/in/sayanto-roy-dev/' },
 ]
 
 export default function Landing() {
@@ -198,17 +200,22 @@ export default function Landing() {
           <h2 className="text-4xl font-black text-white mb-4">Team OpsAI</h2>
           <p className="text-slate-400 text-lg mb-12">Building the future of real estate in India</p>
           
-          <div className="glass-card max-w-sm mx-auto text-center border border-indigo-500/20">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-3xl mx-auto mb-4 shadow-lg shadow-indigo-500/30">
-              🏆
-            </div>
-            <div className="text-white font-bold text-lg">Muruganandham Selvamani</div>
-            <div className="text-indigo-400 text-sm font-medium mt-1">Team Leader — OpsAI</div>
-            <div className="mt-4 flex flex-wrap gap-2 justify-center">
-              {['Blockchain', 'AI/ML', 'Full Stack', 'Smart Contracts'].map(tag => (
-                <span key={tag} className="text-xs bg-indigo-600/20 text-indigo-300 border border-indigo-500/20 px-2.5 py-1 rounded-full">{tag}</span>
-              ))}
-            </div>
+          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            {TEAM.map((member, i) => (
+              <div key={i} className="glass-card text-center border border-indigo-500/20">
+                <a href={member.linkedin} target="_blank" rel="noopener noreferrer" className="block group">
+                  <div className={`p-1 rounded-2xl bg-gradient-to-br ${member.grad} w-24 h-24 mx-auto mb-4 shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform duration-200`}>
+                    <img
+                      src={member.photo}
+                      alt={member.name}
+                      className="w-full h-full object-cover rounded-xl"
+                    />
+                  </div>
+                  <div className="text-white font-bold text-lg group-hover:text-indigo-300 transition-colors">{member.name}</div>
+                </a>
+                <div className="text-indigo-400 text-sm font-medium mt-1">{member.role} — OpsAI</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -251,7 +258,7 @@ export default function Landing() {
 
       {/* Footer */}
       <footer className="border-t border-white/5 py-8 px-6 text-center text-slate-500 text-sm">
-        <p>© 2026 PropChain by OpsAI | Team Leader: Muruganandham Selvamani | Built for Hackathon 2026</p>
+        <p>© 2026 PropChain by OpsAI | Team OpsAI: Muruganandham Selvamani · Gourav Kadu · Sayanto Roy | Built for Hackathon 2026</p>
         <p className="mt-2 text-xs">Powered by Ethereum · Python FastAPI · React.js · TensorFlow/AI</p>
       </footer>
     </div>
